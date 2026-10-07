@@ -417,6 +417,7 @@ namespace NewRelic { namespace Profiler {
         {
             if (_isCoreClr)
             {
+                _eventMask &= ~(COR_PRF_USE_PROFILE_IMAGES | COR_PRF_DISABLE_ALL_NGEN_IMAGES);
                 // register for events that we are interested in getting callbacks for
 // SetEventMask2 requires ICorProfilerInfo5. It allows setting the high-order bits of the profiler event mask.
 // 0x8 = COR_PRF_HIGH_DISABLE_TIERED_COMPILATION <- this was introduced in ICorProfilerCallback9 which we're not currently implementing

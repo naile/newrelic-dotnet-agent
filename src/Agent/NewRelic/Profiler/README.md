@@ -29,11 +29,11 @@ When the `CorProfilerCallbackImpl.Initialize` is called, the profiler has an opp
 Other flags the profiler sets:
 * COR_PRF_MONITOR_JIT_COMPILATION
 * COR_PRF_MONITOR_MODULE_LOADS
-* COR_PRF_USE_PROFILE_IMAGES
+* COR_PRF_USE_PROFILE_IMAGES (.NET Framework only)
 * COR_PRF_MONITOR_THREADS
 * COR_PRF_ENABLE_STACK_SNAPSHOT
 * COR_PRF_ENABLE_REJIT
-* COR_PRF_DISABLE_ALL_NGEN_IMAGES
+* COR_PRF_DISABLE_ALL_NGEN_IMAGES (.NET Framework only; on CoreCLR either of these two flags disables all ReadyToRun code)
 * COR_PRF_HIGH_DISABLE_TIERED_COMPILATION
 
 ### How the Profiler Injects Code
