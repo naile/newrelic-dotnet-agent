@@ -415,39 +415,14 @@ namespace NewRelic { namespace Profiler {
             return eventMask;
         }
 
-        virtual void ConfigureEventMask(IUnknown* pICorProfilerInfoUnk)
+        virtual void ConfigureEventMask(IUnknown* /*pICorProfilerInfoUnk*/)
         {
-            if (_isCoreClr)
+            if (_isCoreClr && !_systemCalls->GetIsReadyToRunDisabled())
             {
-                if (!_systemCalls->GetIsReadyToRunDisabled())
-                {
-                    _eventMask &= ~(COR_PRF_USE_PROFILE_IMAGES | COR_PRF_DISABLE_ALL_NGEN_IMAGES);
-                }
-                // register for events that we are interested in getting callbacks for
-// SetEventMask2 requires ICorProfilerInfo5. It allows setting the high-order bits of the profiler event mask.
-// 0x8 = COR_PRF_HIGH_DISABLE_TIERED_COMPILATION <- this was introduced in ICorProfilerCallback9 which we're not currently implementing
-// see this PR: https://github.com/dotnet/coreclr/pull/14643/files#diff-e7d550d94de30cdf5e7f3a25647a2ae1R626
-// Just passing in the hardcoded 0x8 seems to actually disable tiered compilation,
-// but we should see about actually referencing and implementing ICorProfilerCallback9
-
-                CComPtr<ICorProfilerInfo5> _corProfilerInfo5;
-                const DWORD COR_PRF_HIGH_DISABLE_TIERED_COMPILATION = 0x8;
-
-                if (FAILED(pICorProfilerInfoUnk->QueryInterface(__uuidof(ICorProfilerInfo5), (void**)&_corProfilerInfo5))) {
-                    LogDebug(L"Calling SetEventMask().");
-                    ThrowOnError(_corProfilerInfo4->SetEventMask, _eventMask);
-                }
-                else {
-                    LogDebug(L"Calling SetEventMask2().");
-                    ThrowOnError(_corProfilerInfo5->SetEventMask2, _eventMask, COR_PRF_HIGH_DISABLE_TIERED_COMPILATION);
-                }
+                _eventMask &= ~(COR_PRF_USE_PROFILE_IMAGES | COR_PRF_DISABLE_ALL_NGEN_IMAGES);
             }
-            else
-            {
-                // register for events that we are interested in getting callbacks for
-                LogDebug(L"Calling SetEventMask().");
-                ThrowOnError(_corProfilerInfo4->SetEventMask, _eventMask);
-            }
+            LogDebug(L"Calling SetEventMask().");
+            ThrowOnError(_corProfilerInfo4->SetEventMask, _eventMask);
         }
 
         virtual xstring_t GetRuntimeExtensionsDirectoryName()
