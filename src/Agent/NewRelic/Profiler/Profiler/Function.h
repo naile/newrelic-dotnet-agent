@@ -31,6 +31,11 @@ namespace NewRelic { namespace Profiler
 //#define WRITE_BYTES_TO_DISK 1
 #endif
 
+#define NEWRELIC_API_ASSEMBLY_NAME _X("NewRelic.Api.Agent")
+#define NEWRELIC_API_TYPE_NAME _X("NewRelic.Api.Agent.NewRelic")
+#define NEWRELIC_TRANSACTION_ATTRIBUTE_NAME _X("NewRelic.Api.Agent.TransactionAttribute")
+#define NEWRELIC_TRACE_ATTRIBUTE_NAME _X("NewRelic.Api.Agent.TraceAttribute")
+
     // Turns a FunctionID into a set of data describing a method.  This class is _*NOT*_ thread safe!
     class Function : public MethodRewriter::IFunction
     {
@@ -147,7 +152,7 @@ namespace NewRelic { namespace Profiler
             // turned up all the way we always look up all function info so that it gets logged at TRACE level.
             // Support uses that logging to help customers create / debug custom instrumentation.
 
-            bool skipShouldInstrumentChecks = logAll || hasTransactionOrTraceAttribute || ToStdWString(assemblyName.get()) == _X("NewRelic.Api.Agent");
+            bool skipShouldInstrumentChecks = logAll || hasTransactionOrTraceAttribute || ToStdWString(assemblyName.get()) == NEWRELIC_API_ASSEMBLY_NAME;
 #ifdef DEBUG_PREPROCESSOR
             skipShouldInstrumentChecks = true;
 #endif
@@ -213,7 +218,7 @@ namespace NewRelic { namespace Profiler
         }
 
         // We don't want to search Microsoft assemblies for our trace attributes
-        static bool ShouldSkipAssemblyAttributes(xstring_t assemblyName)
+        static bool ShouldSkipAssemblyAttributes(const xstring_t& assemblyName)
         {
             return Strings::StartsWith(assemblyName, _X("System.")) ||
                 Strings::StartsWith(assemblyName, _X("Microsoft.")) ||
@@ -226,7 +231,7 @@ namespace NewRelic { namespace Profiler
             const BYTE *pVal = NULL;
             ULONG cbVal = 0;
 
-            HRESULT result = metaDataImport->GetCustomAttributeByName(metaDataToken, _X("NewRelic.Api.Agent.TransactionAttribute"), (const void**)&pVal, &cbVal);
+            HRESULT result = metaDataImport->GetCustomAttributeByName(metaDataToken, NEWRELIC_TRANSACTION_ATTRIBUTE_NAME, (const void**)&pVal, &cbVal);
             // It is not safe to use the SUCCEEDED() macro to check result in this case. Contrary to the documentation, GetCustomAttributeByName sometimes
             // returns S_FALSE (1), and we don't want to consider that a successful result in this case.
             if (result == S_OK) {
@@ -246,7 +251,7 @@ namespace NewRelic { namespace Profiler
 
                 return true;
             }
-            result = metaDataImport->GetCustomAttributeByName(metaDataToken, _X("NewRelic.Api.Agent.TraceAttribute"), (const void**)&pVal, &cbVal);
+            result = metaDataImport->GetCustomAttributeByName(metaDataToken, NEWRELIC_TRACE_ATTRIBUTE_NAME, (const void**)&pVal, &cbVal);
             // Same as above, we can't use SUCCEEDED to check result in this case.
             return result == S_OK;
         }
