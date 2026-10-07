@@ -303,16 +303,6 @@ namespace NewRelic { namespace Profiler
             ULONG methodSize = 0;
             const uint8_t* method;
 
-            // get the interfaces we need and the metadata token
-            ThrowOnError(_profilerInfo->GetTokenAndMetaDataFromFunction, functionId, IID_IMetaDataEmit2, (IUnknown**)&_metaDataEmit, nullptr);
-            ThrowOnError(_profilerInfo->GetTokenAndMetaDataFromFunction, functionId, IID_IMetaDataAssemblyEmit, (IUnknown**)&_metaDataAssemblyEmit, nullptr);
-
-            if (_metaDataEmit == nullptr || _metaDataAssemblyEmit == nullptr)
-            {
-                LogError("Unable to get function information for function ID ", functionId);
-                throw FailedToGetFunctionInformationException();
-            }
-
             // get the name of the module
             ULONG moduleNameLength = 0;
             ThrowOnError(_profilerInfo->GetModuleInfo, _moduleId, nullptr, 0, &moduleNameLength, nullptr, nullptr);
@@ -327,9 +317,6 @@ namespace NewRelic { namespace Profiler
 
             _appDomainName = ToStdWString(appDomainName.get());
             _isCoreClr = _appDomainName == _X("clrhost");
-
-            // create the tokenizer that will be used to generate instructions to inject
-            _tokenizer = CreateCorTokenizer(_metaDataAssemblyEmit, _metaDataEmit, _metaDataImport, _metaDataAssemblyImport, _isCoreClr);
 
             // create the token resolver that will be used to get strings from tokens
             _tokenResolver.reset(new CorTokenResolver(_metaDataImport));
@@ -549,6 +536,7 @@ namespace NewRelic { namespace Profiler
         // get the tokenizer that should be used to modify the code bytes
         virtual sicily::codegen::ITokenizerPtr GetTokenizer() override
         {
+            EnsureEmit();
             return _tokenizer;
         }
 
@@ -591,6 +579,7 @@ namespace NewRelic { namespace Profiler
 
         virtual mdToken GetTokenFromSignature(const ByteVector& signature) override
         {
+            EnsureEmit();
             mdToken signatureToken = 0;
             ThrowOnError(_metaDataEmit->GetTokenFromSig, signature.data(), ULONG(signature.size()), &signatureToken);
             return signatureToken;
@@ -600,6 +589,22 @@ namespace NewRelic { namespace Profiler
         {
             return(_classId == 0);
         }
+
+    private:
+        void EnsureEmit()
+        {
+            if (_tokenizer != nullptr) return;
+            ThrowOnError(_profilerInfo->GetTokenAndMetaDataFromFunction, _functionId, IID_IMetaDataEmit2, (IUnknown**)&_metaDataEmit, nullptr);
+            ThrowOnError(_profilerInfo->GetTokenAndMetaDataFromFunction, _functionId, IID_IMetaDataAssemblyEmit, (IUnknown**)&_metaDataAssemblyEmit, nullptr);
+            if (_metaDataEmit == nullptr || _metaDataAssemblyEmit == nullptr)
+            {
+                LogError("Unable to get function information for function ID ", _functionId);
+                throw FailedToGetFunctionInformationException();
+            }
+            _tokenizer = CreateCorTokenizer(_metaDataAssemblyEmit, _metaDataEmit, _metaDataImport, _metaDataAssemblyImport, _isCoreClr);
+        }
+
+    public:
     
         static std::unique_ptr<WCHAR[]> GetClassNameFromToken(CComPtr<IMetaDataImport2> metaDataImport, mdTypeDef typeDefinitionToken)
         {
