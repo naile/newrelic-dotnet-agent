@@ -127,7 +127,7 @@ namespace NewRelic { namespace Profiler {
         virtual HRESULT __stdcall JITCachedFunctionSearchStarted(FunctionID functionId, BOOL* pbUseCachedFunction) override { return S_OK; }
         virtual HRESULT __stdcall JITCachedFunctionSearchFinished(FunctionID functionId, COR_PRF_JIT_CACHE result) override { return S_OK; }
         virtual HRESULT __stdcall JITFunctionPitched(FunctionID functionId) override { return S_OK; }
-        virtual HRESULT __stdcall JITInlining(FunctionID callerId, FunctionID calleeId, BOOL* pfShouldInline) override { return S_OK; }
+        virtual HRESULT __stdcall JITInlining(FunctionID callerId, FunctionID calleeId, BOOL* pfShouldInline) override { *pfShouldInline = TRUE; return S_OK; }
         virtual HRESULT __stdcall ThreadCreated(ThreadID threadId) override { return S_OK; }
         virtual HRESULT __stdcall ThreadAssignedToOSThread(ThreadID managedThreadId, DWORD osThreadId) override { return S_OK; }
         virtual HRESULT __stdcall RemotingClientInvocationStarted() override { return S_OK; }
@@ -208,6 +208,7 @@ namespace NewRelic { namespace Profiler {
                     LogError(L"Error initializing CLR profiler info: ", corProfilerInfoInitResult);
                     return CORPROF_E_PROFILER_CANCEL_ACTIVATION;
                 }
+                pICorProfilerInfoUnk->QueryInterface(__uuidof(ICorProfilerInfo10), (void**)&_corProfilerInfo10);
 
                 // Need runtime information to determine CLR type
                 auto runtimeInfo = std::make_shared<RuntimeInfo>();
@@ -330,6 +331,7 @@ namespace NewRelic { namespace Profiler {
                             RejitModuleFunctions(moduleId, methodDefs);
                         }
                     }
+                    RejitModuleFunctions(moduleId, GetApiAndAttributedMethodDefs(moduleId, assemblyName));
                 }
                 catch (...)
                 {
@@ -417,7 +419,10 @@ namespace NewRelic { namespace Profiler {
         {
             if (_isCoreClr)
             {
-                _eventMask &= ~(COR_PRF_USE_PROFILE_IMAGES | COR_PRF_DISABLE_ALL_NGEN_IMAGES);
+                if (!_systemCalls->GetIsReadyToRunDisabled())
+                {
+                    _eventMask &= ~(COR_PRF_USE_PROFILE_IMAGES | COR_PRF_DISABLE_ALL_NGEN_IMAGES);
+                }
                 // register for events that we are interested in getting callbacks for
 // SetEventMask2 requires ICorProfilerInfo5. It allows setting the high-order bits of the profiler event mask.
 // 0x8 = COR_PRF_HIGH_DISABLE_TIERED_COMPILATION <- this was introduced in ICorProfilerCallback9 which we're not currently implementing
@@ -536,7 +541,7 @@ namespace NewRelic { namespace Profiler {
 
             ModuleID moduleIds = { function.GetModuleID() };
             mdMethodDef methodIds = { function.GetMethodToken() };
-            return _corProfilerInfo4->RequestReJIT(1, &moduleIds, &methodIds);
+            return RequestReJit(1, &moduleIds, &methodIds);
         }
 
         virtual HRESULT __stdcall ReJITCompilationStarted(FunctionID functionId, ReJITID /*rejitId*/, BOOL /*fIsSafeToBlock*/) override
@@ -805,6 +810,71 @@ namespace NewRelic { namespace Profiler {
             return S_OK;
         }
 
+        static mdAssemblyRef FindAssemblyRef(CComPtr<IMetaDataAssemblyImport> assemblyImport, const xstring_t& name)
+        {
+            HCORENUM enumerator = nullptr;
+            OnDestruction closeEnum([&] { if (enumerator) assemblyImport->CloseEnum(enumerator); });
+            mdAssemblyRef refs[32];
+            for (ULONG count = 0; SUCCEEDED(assemblyImport->EnumAssemblyRefs(&enumerator, refs, 32, &count)) && count;)
+            {
+                for (ULONG i = 0; i < count; i++)
+                {
+                    WCHAR refName[256];
+                    ULONG length = 0;
+                    if (SUCCEEDED(assemblyImport->GetAssemblyRefProps(refs[i], nullptr, nullptr, refName, 256, &length, nullptr, nullptr, nullptr, nullptr)) && ToStdWString(refName) == name) return refs[i];
+                }
+            }
+            return mdAssemblyRefNil;
+        }
+
+        // ReadyToRun code never raises JITCompilationStarted, so API methods and [Transaction]/[Trace] methods are requested at module load.
+        std::shared_ptr<std::set<mdMethodDef>> GetApiAndAttributedMethodDefs(ModuleID moduleId, const xstring_t& assemblyName)
+        {
+            auto methodDefs = std::make_shared<std::set<mdMethodDef>>();
+            if (Function::ShouldSkipAssemblyAttributes(assemblyName) && assemblyName != _X("NewRelic.Api.Agent")) return methodDefs;
+            CComPtr<IMetaDataImport> import;
+            CComPtr<IMetaDataAssemblyImport> assemblyImport;
+            if (FAILED(_corProfilerInfo4->GetModuleMetaData(moduleId, ofRead, IID_IMetaDataImport, (IUnknown**)&import))
+                || FAILED(_corProfilerInfo4->GetModuleMetaData(moduleId, ofRead, IID_IMetaDataAssemblyImport, (IUnknown**)&assemblyImport))) return methodDefs;
+            HCORENUM enumerator = nullptr;
+            OnDestruction closeEnum([&] { if (enumerator) import->CloseEnum(enumerator); });
+            if (assemblyName == _X("NewRelic.Api.Agent"))
+            {
+                mdTypeDef apiType;
+                mdMethodDef methods[64];
+                if (FAILED(import->FindTypeDefByName(_X("NewRelic.Api.Agent.NewRelic"), mdTypeDefNil, &apiType))) return methodDefs;
+                for (ULONG count = 0; SUCCEEDED(import->EnumMethods(&enumerator, apiType, methods, 64, &count)) && count;) methodDefs->insert(methods, methods + count);
+                return methodDefs;
+            }
+            auto apiRef = FindAssemblyRef(assemblyImport, _X("NewRelic.Api.Agent"));
+            if (apiRef == mdAssemblyRefNil) return methodDefs;
+            for (auto attributeName : { _X("NewRelic.Api.Agent.TransactionAttribute"), _X("NewRelic.Api.Agent.TraceAttribute") })
+            {
+                mdTypeRef typeRef;
+                mdMemberRef ctors[8];
+                ULONG ctorCount = 0;
+                if (FAILED(import->FindTypeRef(apiRef, attributeName, &typeRef)) || FAILED(import->EnumMemberRefs(&enumerator, typeRef, ctors, 8, &ctorCount))) continue;
+                import->CloseEnum(enumerator);
+                enumerator = nullptr;
+                for (ULONG i = 0; i < ctorCount; i++)
+                {
+                    mdCustomAttribute attributes[64];
+                    for (ULONG count = 0; SUCCEEDED(import->EnumCustomAttributes(&enumerator, 0, ctors[i], attributes, 64, &count)) && count;)
+                    {
+                        for (ULONG j = 0; j < count; j++)
+                        {
+                            mdToken parent;
+                            if (SUCCEEDED(import->GetCustomAttributeProps(attributes[j], &parent, nullptr, nullptr, nullptr)) && TypeFromToken(parent) == mdtMethodDef) methodDefs->insert(parent);
+                        }
+                    }
+                    import->CloseEnum(enumerator);
+                    enumerator = nullptr;
+                }
+            }
+            if (!methodDefs->empty()) LogDebug("Requesting load-time reJIT of ", methodDefs->size(), " attributed method(s) in ", assemblyName);
+            return methodDefs;
+        }
+
         std::shared_ptr<std::set<mdMethodDef>> GetMethodDefs(ModuleID moduleId, NewRelic::Profiler::Configuration::InstrumentationPointSetPtr instrumentationPoints)
         {
             CComPtr<IMetaDataImport> pImport = nullptr;
@@ -839,11 +909,21 @@ namespace NewRelic { namespace Profiler {
             return methodDefs;
         }
 
+        HRESULT RequestReJit(ULONG numberMethods, ModuleID* moduleIds, mdMethodDef* methodIds)
+        {
+            if (_corProfilerInfo10 != nullptr)
+            {
+                HRESULT hr = _corProfilerInfo10->RequestReJITWithInliners(COR_PRF_REJIT_BLOCK_INLINING, numberMethods, moduleIds, methodIds);
+                if (hr != CORPROF_E_REJIT_INLINING_DISABLED && hr != E_INVALIDARG) return hr;
+            }
+            return _corProfilerInfo4->RequestReJIT(numberMethods, moduleIds, methodIds);
+        }
+
         void RejitModuleFunctions(ModuleID moduleId, std::shared_ptr<std::set<mdMethodDef>> methodsToRejit)
         {
             auto rejit =
                 [&](ULONG numberMethods, ModuleID* moduleIds, mdMethodDef* methodIds) {
-                    HRESULT hr = _corProfilerInfo4->RequestReJIT(numberMethods, moduleIds, methodIds);
+                    HRESULT hr = RequestReJit(numberMethods, moduleIds, methodIds);
                     LogDebug("ReJit ", (SUCCEEDED(hr) ? "success" : "failed"));
                 };
             PerformOnMethods(moduleId, methodsToRejit, rejit);
@@ -993,6 +1073,7 @@ namespace NewRelic { namespace Profiler {
     protected:
         MethodRewriter::MethodRewriterPtr _methodRewriter;
         CComPtr<ICorProfilerInfo4> _corProfilerInfo4;
+        CComPtr<ICorProfilerInfo10> _corProfilerInfo10;
         ThreadProfiler::ThreadProfiler _threadProfiler;
         ContinuousProfiler::ContinuousProfiler _continuousProfiler;
         std::shared_ptr<SystemCalls> _systemCalls;

@@ -66,6 +66,11 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter {
             return GetEnvironmentBool(_X("NEW_RELIC_DISABLE_APPDOMAIN_CACHING"), false);
         }
 
+        virtual bool GetIsReadyToRunDisabled()
+        {
+            return GetEnvironmentBool(_X("NEW_RELIC_DISABLE_READYTORUN"), false);
+        }
+
         virtual std::unique_ptr<xstring_t> GetProfilerDelay()
         {
             return GetEnvironmentVariableWithFallback(_X("NEW_RELIC_PROFILER_DELAY_IN_SEC"), _X("NEWRELIC_PROFILER_DELAY_IN_SEC"));
