@@ -16,6 +16,8 @@
 #include "../ThreadProfiler/ThreadProfiler.h"
 #include "../ContinuousProfiler/ContinuousProfiler.h"
 #include "../Common/FileUtils.h"
+#include "DeferredReJitQueue.h"
+#include "EventMask.h"
 #include "Function.h"
 #include "FunctionResolver.h"
 #include "Win32Helpers.h"
@@ -25,8 +27,6 @@
 #include <memory>
 #include <string>
 #include <thread>
-#include <condition_variable>
-#include <chrono>
 #include <utility>
 #include <codecvt>
 
@@ -121,8 +121,7 @@ namespace NewRelic { namespace Profiler {
         virtual HRESULT __stdcall ModuleUnloadStarted(ModuleID moduleId) override
         {
             _continuousProfiler.InvalidateNameCache();
-            std::lock_guard<std::mutex> lock(_pendingRejitMutex);
-            _pendingRejits.erase(moduleId);
+            _deferredRejits.Remove(moduleId);
             return S_OK;
         }
         virtual HRESULT __stdcall ModuleUnloadFinished(ModuleID moduleId, HRESULT hrStatus) override { return S_OK; }
@@ -341,7 +340,7 @@ namespace NewRelic { namespace Profiler {
                     const bool precompiled = _readyToRunEnabled && IsPrecompiled(moduleId);
                     if (precompiled) AddPrecompiledMethodDefsToRejit(moduleId, assemblyName, *methodDefs);
                     RejitModuleFunctions(moduleId, methodDefs);
-                    if (precompiled && !methodDefs->empty()) RequestReJitAgainAfterLoad(moduleId, methodDefs);
+                    if (precompiled && !methodDefs->empty()) _deferredRejits.Add(moduleId, methodDefs);
                 }
                 catch (...)
                 {
@@ -422,10 +421,9 @@ namespace NewRelic { namespace Profiler {
 
         void ConfigureEventMask()
         {
-            DWORD eventMask = COR_PRF_MONITOR_JIT_COMPILATION | COR_PRF_MONITOR_MODULE_LOADS | COR_PRF_MONITOR_THREADS | COR_PRF_ENABLE_STACK_SNAPSHOT | COR_PRF_ENABLE_REJIT;
-            _readyToRunEnabled = _isCoreClr && !_systemCalls->GetIsReadyToRunDisabled();
-            if (!_readyToRunEnabled) eventMask |= COR_PRF_USE_PROFILE_IMAGES | COR_PRF_DISABLE_ALL_NGEN_IMAGES;
-            ThrowOnError(_corProfilerInfo4->SetEventMask, eventMask);
+            const bool readyToRunDisabled = _systemCalls->GetIsReadyToRunDisabled();
+            _readyToRunEnabled = _isCoreClr && !readyToRunDisabled;
+            ThrowOnError(_corProfilerInfo4->SetEventMask, BuildEventMask(_isCoreClr, readyToRunDisabled));
         }
 
         virtual xstring_t GetRuntimeExtensionsDirectoryName()
@@ -599,11 +597,7 @@ namespace NewRelic { namespace Profiler {
         virtual HRESULT __stdcall Shutdown() override
         {
             LogInfo(L"Profiler shutting down");
-            {
-                std::lock_guard<std::mutex> lock(_pendingRejitMutex);
-                _shuttingDown = true;
-            }
-            _pendingRejitSignal.notify_all();
+            _deferredRejits.Shutdown();
             // Ordering guarantee, made structural rather than incidental: _continuousProfiler.Shutdown()
             // below MUST run on this path (the CP sampler thread calling SuspendRuntime/DoStackSnapshot/
             // GetFunctionInfo after this callback returns is forbidden by the profiling API), so it cannot
@@ -816,35 +810,6 @@ namespace NewRelic { namespace Profiler {
         {
             DWORD moduleFlags = 0;
             return SUCCEEDED(_corProfilerInfo4->GetModuleInfo2(moduleId, nullptr, 0, nullptr, nullptr, nullptr, &moduleFlags)) && (moduleFlags & COR_PRF_MODULE_NGEN);
-        }
-
-        // The runtime only re-JITs precompiled inliners in assemblies that have finished loading, which excludes the
-        // requested method's own assembly during ModuleLoadFinished, so precompiled modules get a second request shortly after.
-        void RequestReJitAgainAfterLoad(ModuleID moduleId, std::shared_ptr<std::set<mdMethodDef>> methodDefs)
-        {
-            std::lock_guard<std::mutex> lock(_pendingRejitMutex);
-            _pendingRejits[moduleId] = methodDefs;
-            _pendingRejitSignal.notify_one();
-            if (_pendingRejitWorkerStarted) return;
-            _pendingRejitWorkerStarted = true;
-            std::thread([this] {
-                for (;;)
-                {
-                    std::map<ModuleID, std::shared_ptr<std::set<mdMethodDef>>> batch;
-                    {
-                        std::unique_lock<std::mutex> lock(_pendingRejitMutex);
-                        _pendingRejitSignal.wait(lock, [this] { return !_pendingRejits.empty() || _shuttingDown; });
-                        if (_shuttingDown) return;
-                    }
-                    std::this_thread::sleep_for(std::chrono::milliseconds(500));
-                    {
-                        std::lock_guard<std::mutex> lock(_pendingRejitMutex);
-                        if (_shuttingDown) return;
-                        batch.swap(_pendingRejits);
-                    }
-                    for (auto& pending : batch) RejitModuleFunctions(pending.first, pending.second);
-                }
-            }).detach();
         }
 
         // ReadyToRun code never raises JITCompilationStarted, so API methods and [Transaction]/[Trace] methods in precompiled modules are requested at module load.
@@ -1104,11 +1069,7 @@ namespace NewRelic { namespace Profiler {
 
         bool _isCoreClr = false;
         bool _readyToRunEnabled = false;
-        bool _shuttingDown = false;
-        bool _pendingRejitWorkerStarted = false;
-        std::mutex _pendingRejitMutex;
-        std::condition_variable _pendingRejitSignal;
-        std::map<ModuleID, std::shared_ptr<std::set<mdMethodDef>>> _pendingRejits;
+        DeferredReJitQueue _deferredRejits{ [this](ModuleID moduleId, DeferredReJitQueue::MethodDefs methodDefs) { RejitModuleFunctions(moduleId, methodDefs); }, std::chrono::milliseconds(300) };
         // Written from ModuleLoadFinished (the downgrade path) and from Initialize; read on every
         // JIT and ReJIT compilation via ProcessMethodJit, each of which can run on a different
         // thread than ModuleLoadFinished -- so this must be atomic.
