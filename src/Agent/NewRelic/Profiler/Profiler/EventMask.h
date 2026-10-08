@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #pragma once
+#include <cor.h>
 #include <corprof.h>
 
 namespace NewRelic { namespace Profiler
