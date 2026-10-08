@@ -25,6 +25,8 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <condition_variable>
+#include <chrono>
 #include <utility>
 #include <codecvt>
 
@@ -116,7 +118,13 @@ namespace NewRelic { namespace Profiler {
         virtual HRESULT __stdcall AssemblyUnloadStarted(AssemblyID assemblyId) override { _continuousProfiler.InvalidateNameCache(); return S_OK; }
         virtual HRESULT __stdcall AssemblyUnloadFinished(AssemblyID assemblyId, HRESULT hrStatus) override { return S_OK; }
         virtual HRESULT __stdcall ModuleLoadStarted(ModuleID moduleId) override { return S_OK; }
-        virtual HRESULT __stdcall ModuleUnloadStarted(ModuleID moduleId) override { _continuousProfiler.InvalidateNameCache(); return S_OK; }
+        virtual HRESULT __stdcall ModuleUnloadStarted(ModuleID moduleId) override
+        {
+            _continuousProfiler.InvalidateNameCache();
+            std::lock_guard<std::mutex> lock(_pendingRejitMutex);
+            _pendingRejits.erase(moduleId);
+            return S_OK;
+        }
         virtual HRESULT __stdcall ModuleUnloadFinished(ModuleID moduleId, HRESULT hrStatus) override { return S_OK; }
         virtual HRESULT __stdcall ModuleAttachedToAssembly(ModuleID moduleId, AssemblyID AssemblyId) override { return S_OK; }
         virtual HRESULT __stdcall ClassLoadStarted(ClassID classId) override { return S_OK; }
@@ -330,8 +338,10 @@ namespace NewRelic { namespace Profiler {
                         auto xmlMethodDefs = GetMethodDefs(moduleId, instrumentationPoints);
                         if (xmlMethodDefs != nullptr) methodDefs->insert(xmlMethodDefs->begin(), xmlMethodDefs->end());
                     }
-                    AddPrecompiledMethodDefsToRejit(moduleId, assemblyName, *methodDefs);
+                    const bool precompiled = _readyToRunEnabled && IsPrecompiled(moduleId);
+                    if (precompiled) AddPrecompiledMethodDefsToRejit(moduleId, assemblyName, *methodDefs);
                     RejitModuleFunctions(moduleId, methodDefs);
+                    if (precompiled && !methodDefs->empty()) RequestReJitAgainAfterLoad(moduleId, methodDefs);
                 }
                 catch (...)
                 {
@@ -589,6 +599,11 @@ namespace NewRelic { namespace Profiler {
         virtual HRESULT __stdcall Shutdown() override
         {
             LogInfo(L"Profiler shutting down");
+            {
+                std::lock_guard<std::mutex> lock(_pendingRejitMutex);
+                _shuttingDown = true;
+            }
+            _pendingRejitSignal.notify_all();
             // Ordering guarantee, made structural rather than incidental: _continuousProfiler.Shutdown()
             // below MUST run on this path (the CP sampler thread calling SuspendRuntime/DoStackSnapshot/
             // GetFunctionInfo after this callback returns is forbidden by the profiling API), so it cannot
@@ -797,13 +812,46 @@ namespace NewRelic { namespace Profiler {
             return mdAssemblyRefNil;
         }
 
+        bool IsPrecompiled(ModuleID moduleId)
+        {
+            DWORD moduleFlags = 0;
+            return SUCCEEDED(_corProfilerInfo4->GetModuleInfo2(moduleId, nullptr, 0, nullptr, nullptr, nullptr, &moduleFlags)) && (moduleFlags & COR_PRF_MODULE_NGEN);
+        }
+
+        // The runtime only re-JITs precompiled inliners in assemblies that have finished loading, which excludes the
+        // requested method's own assembly during ModuleLoadFinished, so precompiled modules get a second request shortly after.
+        void RequestReJitAgainAfterLoad(ModuleID moduleId, std::shared_ptr<std::set<mdMethodDef>> methodDefs)
+        {
+            std::lock_guard<std::mutex> lock(_pendingRejitMutex);
+            _pendingRejits[moduleId] = methodDefs;
+            _pendingRejitSignal.notify_one();
+            if (_pendingRejitWorkerStarted) return;
+            _pendingRejitWorkerStarted = true;
+            std::thread([this] {
+                for (;;)
+                {
+                    std::map<ModuleID, std::shared_ptr<std::set<mdMethodDef>>> batch;
+                    {
+                        std::unique_lock<std::mutex> lock(_pendingRejitMutex);
+                        _pendingRejitSignal.wait(lock, [this] { return !_pendingRejits.empty() || _shuttingDown; });
+                        if (_shuttingDown) return;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                    {
+                        std::lock_guard<std::mutex> lock(_pendingRejitMutex);
+                        if (_shuttingDown) return;
+                        batch.swap(_pendingRejits);
+                    }
+                    for (auto& pending : batch) RejitModuleFunctions(pending.first, pending.second);
+                }
+            }).detach();
+        }
+
         // ReadyToRun code never raises JITCompilationStarted, so API methods and [Transaction]/[Trace] methods in precompiled modules are requested at module load.
         void AddPrecompiledMethodDefsToRejit(ModuleID moduleId, const xstring_t& assemblyName, std::set<mdMethodDef>& methodDefs)
         {
             const bool isApiAssembly = assemblyName == NEWRELIC_API_ASSEMBLY_NAME;
-            DWORD moduleFlags = 0;
-            if (!_readyToRunEnabled || (!isApiAssembly && Function::ShouldSkipAssemblyAttributes(assemblyName))) return;
-            if (FAILED(_corProfilerInfo4->GetModuleInfo2(moduleId, nullptr, 0, nullptr, nullptr, nullptr, &moduleFlags)) || !(moduleFlags & COR_PRF_MODULE_NGEN)) return;
+            if (!isApiAssembly && Function::ShouldSkipAssemblyAttributes(assemblyName)) return;
             CComPtr<IMetaDataImport> import;
             if (FAILED(_corProfilerInfo4->GetModuleMetaData(moduleId, ofRead, IID_IMetaDataImport, (IUnknown**)&import))) return;
             if (isApiAssembly)
@@ -1056,6 +1104,11 @@ namespace NewRelic { namespace Profiler {
 
         bool _isCoreClr = false;
         bool _readyToRunEnabled = false;
+        bool _shuttingDown = false;
+        bool _pendingRejitWorkerStarted = false;
+        std::mutex _pendingRejitMutex;
+        std::condition_variable _pendingRejitSignal;
+        std::map<ModuleID, std::shared_ptr<std::set<mdMethodDef>>> _pendingRejits;
         // Written from ModuleLoadFinished (the downgrade path) and from Initialize; read on every
         // JIT and ReJIT compilation via ProcessMethodJit, each of which can run on a different
         // thread than ModuleLoadFinished -- so this must be atomic.
