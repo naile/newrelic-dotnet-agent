@@ -98,11 +98,29 @@ namespace NewRelic { namespace Profiler
             AddPermissionSetAssertToMethod(injectedMethodToken, permissionBlob);
         }
 
+        // Defines a method without an RVA (the System.Runtime facade has no IL to borrow one from) and gives it a
+        // placeholder body (ldnull; throw) until HelperInstrumentor writes the real one when it is first JIT-compiled.
+        virtual void InjectStaticMethod(const xstring_t& methodName, const xstring_t& className, const ByteVector& signature) override
+        {
+            auto interfaceAttributes = CorMethodAttr::mdStatic | CorMethodAttr::mdPublic | CorMethodAttr::mdHideBySig;
+            auto implementationAttributes = CorMethodImpl::miIL | CorMethodImpl::miNoInlining;
+            auto injectedMethodToken = AddMethodDefinition(methodName, GetTypeToken(className), signature, interfaceAttributes, implementationAttributes, 0);
+
+            BYTEVECTOR(placeholderBody, (2 << 2) | CorILMethod_TinyFormat, CEE_LDNULL, CEE_THROW);
+            IMethodMalloc* methodAllocator;
+            ThrowOnError(_profilerInfo->GetILFunctionBodyAllocator, _moduleId, &methodAllocator);
+            auto allocatedSpace = (uint8_t*)methodAllocator->Alloc(ULONG(placeholderBody.size()));
+            memcpy(allocatedSpace, placeholderBody.data(), placeholderBody.size());
+            ThrowOnError(_profilerInfo->SetILFunctionBody, _moduleId, injectedMethodToken, allocatedSpace);
+        }
+
+        // On Core the helper methods live on this type and are called from other assemblies, so it must be public.
         virtual void InjectNRHelperType() override
         {
-            auto objectTypeToken = GetTypeToken(_X("System.Object"));
+            auto objectTypeToken = _tokenizer->GetTypeDefToken(_X("System.Object"));
+            auto visibility = _isCoreClr ? CorTypeAttr::tdPublic : CorTypeAttr::tdNotPublic;
             mdTypeDef nrHelperType;
-            ThrowOnError(_metaDataEmit->DefineTypeDef, _X("__NRInitializer__"), CorTypeAttr::tdAbstract | CorTypeAttr::tdSealed, objectTypeToken, NULL, &nrHelperType);
+            ThrowOnError(_metaDataEmit->DefineTypeDef, _X("__NRInitializer__"), visibility | CorTypeAttr::tdAbstract | CorTypeAttr::tdSealed, objectTypeToken, NULL, &nrHelperType);
 
             auto dataFieldAttributes = CorFieldAttr::fdPublic | CorFieldAttr::fdStatic;
             BYTEVECTOR(dataFieldSignature, CorCallingConvention::IMAGE_CEE_CS_CALLCONV_FIELD, CorElementType::ELEMENT_TYPE_OBJECT);
@@ -304,7 +322,7 @@ namespace NewRelic { namespace Profiler
             _isMscorlib = Strings::EndsWith(GetModuleName(), _X("mscorlib.dll"));
             _isNetStandard = Strings::EndsWith(GetModuleName(), _X("netstandard.dll"));
             _isSystemPrivateCoreLib = Strings::EndsWith(GetModuleName(), _X("System.Private.CoreLib.dll"));
-            _isCoreLibAssembly = _isCoreClr ? _isSystemPrivateCoreLib : _isMscorlib;
+            _isCoreLibAssembly = _isCoreClr ? Strings::EndsWith(GetModuleName(), _X("System.Runtime.dll")) : _isMscorlib;
         }
 
         mdAssemblyRef GetAssemblyReference(const xstring_t& assemblyName)

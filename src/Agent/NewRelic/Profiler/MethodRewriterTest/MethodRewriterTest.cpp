@@ -73,10 +73,12 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter { namespace T
             Assert::IsTrue(rewriter->ShouldInstrumentAssembly(_X("mscorlib")));
         }
 
-        TEST_METHOD(ShouldInstrumentAssembly_system_private_core_lib_returns_true)
+        TEST_METHOD(ShouldInstrumentAssembly_coreclr_helper_assembly_is_system_runtime)
         {
-            auto rewriter = MakeRewriter();
-            Assert::IsTrue(rewriter->ShouldInstrumentAssembly(_X("System.Private.CoreLib")));
+            auto rewriter = MakeRewriter(true);
+            Assert::IsTrue(rewriter->ShouldInstrumentAssembly(_X("System.Runtime")));
+            Assert::IsFalse(rewriter->ShouldInstrumentAssembly(_X("System.Private.CoreLib")));
+            Assert::IsFalse(rewriter->ShouldInstrumentAssembly(_X("mscorlib")));
         }
 
         TEST_METHOD(ShouldInstrumentAssembly_unknown_assembly_returns_false)
@@ -98,6 +100,13 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter { namespace T
         {
             auto rewriter = MakeRewriter();
             Assert::IsTrue(rewriter->ShouldInstrumentType(_X("System.CannotUnloadAppDomainException")));
+        }
+
+        TEST_METHOD(ShouldInstrumentType_coreclr_helper_type_is_nr_initializer)
+        {
+            auto rewriter = MakeRewriter(true);
+            Assert::IsTrue(rewriter->ShouldInstrumentType(_X("__NRInitializer__")));
+            Assert::IsFalse(rewriter->ShouldInstrumentType(_X("System.CannotUnloadAppDomainException")));
         }
 
         TEST_METHOD(ShouldInstrumentType_unknown_type_returns_false)

@@ -145,7 +145,7 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter
     };
 
 
-    // An instrumentor for the methods we inject into mscorlib
+    // An instrumentor for the helper methods we inject into mscorlib or System.Runtime
     struct HelperInstrumentor : public IInstrumentor
     {
         // Proxy engagement counter: counts total HelperInstrumentor dispatch events.
@@ -159,11 +159,10 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter
 
         bool Instrument(IFunctionPtr function, InstrumentationSettingsPtr, const bool isCoreClr, const AgentCallStyle::Strategy agentCallStrategy) override
         {
-            const auto expectedHelperAssemblyName = isCoreClr ? _X("System.Private.CoreLib.dll") : _X("mscorlib.dll");
-            if (!Strings::EndsWith(function->GetModuleName(), expectedHelperAssemblyName))
+            if (!Strings::EndsWith(function->GetModuleName(), AgentCallStyle::HelperAssemblyName(isCoreClr) + _X(".dll")))
                 return false;
 
-            if (function->GetTypeName() != _X("System.CannotUnloadAppDomainException"))
+            if (function->GetTypeName() != AgentCallStyle::HelperTypeName(isCoreClr))
                 return false;
 
             if (function->GetFunctionName() != _X("GetThreadLocalBoolean") &&

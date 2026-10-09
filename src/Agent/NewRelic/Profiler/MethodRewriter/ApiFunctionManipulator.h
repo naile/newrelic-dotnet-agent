@@ -115,7 +115,7 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter
 
             BuildObjectArrayOfParameters();
 
-            _instructions->Append(CEE_CALL, _X("object [") + _instructions->GetCoreLibAssemblyName() + _X("]System.CannotUnloadAppDomainException::InvokeAgentMethodInvokerFunc(string,string,string,string,class [") + _instructions->GetCoreLibAssemblyName() + _X("]System.Type[],class [") + _instructions->GetCoreLibAssemblyName() + _X("]System.Type,object[])"));
+            _instructions->Append(CEE_CALL, _X("object [") + AgentCallStyle::HelperAssemblyName(_isCoreClr) + _X("]") + AgentCallStyle::HelperTypeName(_isCoreClr) + _X("::InvokeAgentMethodInvokerFunc(string,string,string,string,class [") + _instructions->GetCoreLibAssemblyName() + _X("]System.Type[],class [") + _instructions->GetCoreLibAssemblyName() + _X("]System.Type,object[])"));
         }
 
         // Reflection: self-contained IL that resolves the target itself and dispatches

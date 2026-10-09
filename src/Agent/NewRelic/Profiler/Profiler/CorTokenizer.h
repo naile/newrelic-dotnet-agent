@@ -133,9 +133,9 @@ namespace NewRelic { namespace Profiler
 
     protected:
         CComPtr<IMetaDataAssemblyEmit> metaDataAssemblyEmit;
+        CComPtr<IMetaDataImport2> metaDataImport;
     private:
         CComPtr<IMetaDataEmit2> metaDataEmit;
-        CComPtr<IMetaDataImport2> metaDataImport;
         CComPtr<IMetaDataAssemblyImport> metaDataAssemblyImport;
 
         xstring_t GetAssemblyName(const mdAssemblyRef& assemblyReferenceToken)
@@ -281,6 +281,24 @@ namespace NewRelic { namespace Profiler
         virtual uint32_t GetTypeRefToken(const xstring_t& assemblyName, const xstring_t& fullyQualifiedName) override
         {
             return CorTokenizer::GetTypeRefToken(ResolveAssemblyForType(assemblyName, fullyQualifiedName), fullyQualifiedName);
+        }
+
+        // A facade such as System.Runtime defines no types of its own and forwards them to System.Private.CoreLib, so
+        // an unqualified name it does not define resolves through its existing System.Private.CoreLib reference.
+        virtual uint32_t GetTypeDefToken(const xstring_t& fullName) override
+        {
+            mdTypeDef typeToken;
+            HRESULT hr = metaDataImport->FindTypeDefByName(ToWindowsString(fullName), 0, &typeToken);
+            if (SUCCEEDED(hr))
+            {
+                return typeToken;
+            }
+            auto coreLibToken = CorTokenizer::GetAssemblyRefToken(_X("System.Private.CoreLib"));
+            if (coreLibToken == S_FALSE)
+            {
+                throw NewRelic::Profiler::Win32Exception(hr);
+            }
+            return CorTokenizer::GetTypeRefToken(coreLibToken, fullName);
         }
 
         virtual uint32_t GetAssemblyRefToken(const xstring_t& requestedAssemblyName) override

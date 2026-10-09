@@ -31,10 +31,11 @@ namespace NewRelic { namespace Profiler { namespace ModuleInjector
         };
 
     public:
-        // On Core the JIT-time tokenizer defines helper refs lazily, so only CoreLib needs load-time injection.
+        // On Core the JIT-time tokenizer defines helper refs lazily, so only the System.Runtime facade
+        // that hosts the helper type needs load-time injection.
         static bool ShouldInjectAtModuleLoad(const bool isCoreClr, const xstring_t& assemblyName)
         {
-            return !isCoreClr || assemblyName == _X("System.Private.CoreLib");
+            return !isCoreClr || assemblyName == _X("System.Runtime");
         }
 
         // Returns true if it is safe to keep the AppDomainFallbackCache calling strategy.
@@ -92,12 +93,29 @@ namespace NewRelic { namespace Profiler { namespace ModuleInjector
                 ManagedMethodToInject(_X("System.CannotUnloadAppDomainException"), _X("InvokeAgentShimFinishTracerDelegateFunc"), _X("object"), _X("string,object[]"))
             };
 
+            // On Core the helpers are defined on __NRInitializer__ in the System.Runtime facade. The facade
+            // defines no other types, so the tokenizer resolves these unqualified names through its
+            // System.Private.CoreLib reference.
+            constexpr std::array<ManagedMethodToInject, 11> methodImplsToInjectCoreClr{
+                ManagedMethodToInject(_X("__NRInitializer__"), _X("LoadAssemblyOrThrow"), _X("class System.Reflection.Assembly"), _X("string")),
+                ManagedMethodToInject(_X("__NRInitializer__"), _X("GetTypeViaReflectionOrThrow"), _X("class System.Type"), _X("string,string")),
+                ManagedMethodToInject(_X("__NRInitializer__"), _X("GetMethodViaReflectionOrThrow"), _X("class System.Reflection.MethodInfo"), _X("string,string,string,class System.Type[]")),
+                ManagedMethodToInject(_X("__NRInitializer__"), _X("StoreMethodInAppDomainStorageOrThrow"), _X("void"), _X("object,string")),
+                ManagedMethodToInject(_X("__NRInitializer__"), _X("StoreAgentMethodInvokerFunc"), _X("void"), _X("string")),
+                ManagedMethodToInject(_X("__NRInitializer__"), _X("StoreAgentShimFinishTracerDelegateFunc"), _X("void"), _X("string")),
+                ManagedMethodToInject(_X("__NRInitializer__"), _X("EnsureInitialized"), _X("void"), _X("string")),
+                ManagedMethodToInject(_X("__NRInitializer__"), _X("InvokeAgentMethodInvokerFunc"), _X("object"), _X("string,string,string,string,class System.Type[],class System.Type,object[]")),
+                ManagedMethodToInject(_X("__NRInitializer__"), _X("GetAgentMethodInvokerObject"), _X("object"), _X("")),
+                ManagedMethodToInject(_X("__NRInitializer__"), _X("GetAgentShimFinishTracerDelegateFunc"), _X("object"), _X("")),
+                ManagedMethodToInject(_X("__NRInitializer__"), _X("InvokeAgentShimFinishTracerDelegateFunc"), _X("object"), _X("string,object[]"))
+            };
+
             const auto is_coreLib = module.GetIsThisTheCoreLibAssembly();
 
             // If instrumenting Core Lib, use local (to the assembly) references
             // otherwise use external references
             auto methods = is_coreLib
-                ? methodImplsToInject
+                ? (isCoreClr ? methodImplsToInjectCoreClr : methodImplsToInject)
                 : (isCoreClr ? methodReferencesToInjectCoreClr : methodReferencesToInjectNetFramework);
 
             if (!is_coreLib && !EnsureReferenceToCoreLib(module))
@@ -131,7 +149,7 @@ namespace NewRelic { namespace Profiler { namespace ModuleInjector
             LogDebug(L"Injecting ", ((is_coreLib) ? L"" : L"references to "), L"helper methods into ", module.GetModuleName());
 
             //inject the methods if this is the Core Lib and inject references into all other assemblies. (pointer to member function to select method to call in loop)
-            const auto workerFunc{ (is_coreLib) ? &IModule::InjectStaticSecuritySafeMethod : &IModule::InjectCoreLibSecuritySafeMethodReference };
+            const auto workerFunc{ (is_coreLib) ? (isCoreClr ? &IModule::InjectStaticMethod : &IModule::InjectStaticSecuritySafeMethod) : &IModule::InjectCoreLibSecuritySafeMethodReference };
             xstring_t signatum;
             signatum.reserve(200);
             for (const auto& managedMethod : methods)

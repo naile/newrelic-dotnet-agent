@@ -34,10 +34,10 @@ namespace sicily
             //   - typeDefinitionToken must be a TypeDef in the module being rewritten.
             //     IMetaDataImport::FindField takes an mdTypeDef; a TypeRef will not resolve.
             //     Today this holds by construction -- the only field signatures are for
-            //     __NRInitializer__, whose TypeDef is created in the corelib module
-            //     (ModuleInjector::InjectIntoModule) and whose field IL is emitted only into
-            //     that same module (HelperInstrumentor::Instrument). Those two corelib checks
-            //     are separate copies of the same predicate; keep them in step.
+            //     __NRInitializer__, whose TypeDef is created in the helper module (mscorlib, or
+            //     System.Runtime on Core; ModuleInjector::InjectIntoModule) and whose field IL is
+            //     emitted only into that same module (HelperInstrumentor::Instrument). Both use
+            //     AgentCallStyle::HelperAssemblyName's choice; keep them in step.
             //   - Inherited fields are not found, only ones declared directly on the type.
             virtual uint32_t GetFieldDefinitionToken(const uint32_t& typeDefinitionToken, const xstring_t& name) = 0;
             virtual uint32_t GetMethodSpecToken(uint32_t methodDefOrRefOrSpecToken, const ByteVector& instantiationSignature) = 0;

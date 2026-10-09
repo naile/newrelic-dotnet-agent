@@ -9,12 +9,13 @@
 namespace NewRelic { namespace Profiler { namespace MethodRewriter
 {
     // This thing writes the helper methods that we add to
-    // System.Type System.CannotUnloadAppDomainException
+    // AgentCallStyle::HelperTypeName (System.CannotUnloadAppDomainException or __NRInitializer__)
     class HelperFunctionManipulator : FunctionManipulator
     {
     public:
         HelperFunctionManipulator(IFunctionPtr function, const bool isCoreClr, const AgentCallStyle::Strategy agentCallStrategy) :
-            FunctionManipulator(function, isCoreClr, agentCallStrategy)
+            FunctionManipulator(function, isCoreClr, agentCallStrategy),
+            _helperType(AgentCallStyle::HelperTypeName(isCoreClr))
         {
             Initialize();
         }
@@ -74,6 +75,7 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter
             InstrumentTiny();
         }
     private:
+        const xstring_t _helperType;
 
         // System.Reflection.Assembly LoadAssemblyOrThrow(String assemblyPath)
         void BuildLoadAssemblyOrThrow()
@@ -88,7 +90,7 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter
         void BuildGetTypeViaReflectionOrThrow()
         {
             _instructions->Append(CEE_LDARG_0);
-            _instructions->Append(CEE_CALL, _X("class System.Reflection.Assembly System.CannotUnloadAppDomainException::LoadAssemblyOrThrow(string)"));
+            _instructions->Append(CEE_CALL, _X("class System.Reflection.Assembly ") + _helperType + _X("::LoadAssemblyOrThrow(string)"));
             _instructions->Append(CEE_LDARG_1);
             _instructions->Append(CEE_CALLVIRT, _X("instance class System.Type System.Reflection.Assembly::GetType(string)"));
             ThrowExceptionIfStackItemIsNull(_instructions, _X("Failed to load type from assembly via reflection."), true);
@@ -100,7 +102,7 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter
         {
             _instructions->Append(CEE_LDARG_0);
             _instructions->Append(CEE_LDARG_1);
-            _instructions->Append(CEE_CALL, _X("class System.Type System.CannotUnloadAppDomainException::GetTypeViaReflectionOrThrow(string,string)"));
+            _instructions->Append(CEE_CALL, _X("class System.Type ") + _helperType + _X("::GetTypeViaReflectionOrThrow(string,string)"));
             _instructions->Append(CEE_LDARG_2);
             _instructions->Append(CEE_LDARG_3);
 
@@ -173,7 +175,7 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter
             _instructions->AppendString(_X("NewRelic.Agent.Core.AgentShim"));
             _instructions->AppendString(_X("GetFinishTracerDelegateFunc"));
             _instructions->Append(CEE_LDNULL);
-            _instructions->Append(CEE_CALL, _X("class System.Reflection.MethodInfo System.CannotUnloadAppDomainException::GetMethodViaReflectionOrThrow(string,string,string,class System.Type[])"));
+            _instructions->Append(CEE_CALL, _X("class System.Reflection.MethodInfo ") + _helperType + _X("::GetMethodViaReflectionOrThrow(string,string,string,class System.Type[])"));
 
             _instructions->Append(CEE_LDNULL);
             _instructions->Append(CEE_LDNULL);
@@ -182,7 +184,7 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter
             _instructions->Append(CEE_DUP);
             _instructions->Append(CEE_STSFLD, _X("object __NRInitializer__::_agentShimFunc"));
             _instructions->AppendString(_X("__NRInitializer__::_agentShimFunc"));
-            _instructions->Append(CEE_CALL, _X("void System.CannotUnloadAppDomainException::StoreMethodInAppDomainStorageOrThrow(object,string)"));
+            _instructions->Append(CEE_CALL, _X("void ") + _helperType + _X("::StoreMethodInAppDomainStorageOrThrow(object,string)"));
             _instructions->Append(CEE_RET);
         }
 
@@ -193,9 +195,9 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter
         void BuildInvokeAgentShimFinishTracerDelegateFunc()
         {
             _instructions->Append(CEE_LDARG_0);
-            _instructions->Append(_X("call void System.CannotUnloadAppDomainException::EnsureInitialized(string)"));
+            _instructions->Append(_X("call void ") + _helperType + _X("::EnsureInitialized(string)"));
 
-            _instructions->Append(_X("call object System.CannotUnloadAppDomainException::GetAgentShimFinishTracerDelegateFunc()"));
+            _instructions->Append(_X("call object ") + _helperType + _X("::GetAgentShimFinishTracerDelegateFunc()"));
 
             _instructions->Append(CEE_CASTCLASS, _X("class System.Func`2<object[], class System.Action`2<object, class System.Exception>>"));
             _instructions->Append(CEE_LDARG_1);
@@ -238,7 +240,7 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter
             _instructions->AppendString(_X("NewRelic.Agent.Core.ProfilerAgentMethodInvoker"));
             _instructions->AppendString(_X("GetInvoker"));
             _instructions->Append(CEE_LDNULL);
-            _instructions->Append(CEE_CALL, _X("class System.Reflection.MethodInfo System.CannotUnloadAppDomainException::GetMethodViaReflectionOrThrow(string,string,string,class System.Type[])"));
+            _instructions->Append(CEE_CALL, _X("class System.Reflection.MethodInfo ") + _helperType + _X("::GetMethodViaReflectionOrThrow(string,string,string,class System.Type[])"));
 
             _instructions->Append(CEE_LDNULL);
             _instructions->Append(CEE_LDNULL);
@@ -247,7 +249,7 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter
             _instructions->Append(CEE_DUP);
             _instructions->Append(CEE_STSFLD, _X("object __NRInitializer__::_agentMethodFunc"));
             _instructions->AppendString(_X("__NRInitializer__::_agentMethodFunc"));
-            _instructions->Append(CEE_CALL, _X("void System.CannotUnloadAppDomainException::StoreMethodInAppDomainStorageOrThrow(object,string)"));
+            _instructions->Append(CEE_CALL, _X("void ") + _helperType + _X("::StoreMethodInAppDomainStorageOrThrow(object,string)"));
             _instructions->Append(CEE_RET);
         }
 
@@ -256,14 +258,14 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter
         // the invoker func. No-op if already initialized.
         void BuildEnsureInitializedMethod()
         {
-            _instructions->Append(_X("call object System.CannotUnloadAppDomainException::GetAgentMethodInvokerObject()"));
+            _instructions->Append(_X("call object ") + _helperType + _X("::GetAgentMethodInvokerObject()"));
             auto afterInit = _instructions->AppendJump(CEE_BRTRUE);
 
             _instructions->Append(CEE_LDARG_0);
-            _instructions->Append(_X("call void System.CannotUnloadAppDomainException::StoreAgentShimFinishTracerDelegateFunc(string)"));
+            _instructions->Append(_X("call void ") + _helperType + _X("::StoreAgentShimFinishTracerDelegateFunc(string)"));
 
             _instructions->Append(CEE_LDARG_0);
-            _instructions->Append(_X("call void System.CannotUnloadAppDomainException::StoreAgentMethodInvokerFunc(string)"));
+            _instructions->Append(_X("call void ") + _helperType + _X("::StoreAgentMethodInvokerFunc(string)"));
 
             _instructions->AppendLabel(afterInit);
 
@@ -278,9 +280,9 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter
         void BuildInvokeAgentMethodInvokerFunc()
         {
             _instructions->Append(CEE_LDARG_0);
-            _instructions->Append(_X("call void System.CannotUnloadAppDomainException::EnsureInitialized(string)"));
+            _instructions->Append(_X("call void ") + _helperType + _X("::EnsureInitialized(string)"));
 
-            _instructions->Append(_X("call object System.CannotUnloadAppDomainException::GetAgentMethodInvokerObject()"));
+            _instructions->Append(_X("call object ") + _helperType + _X("::GetAgentMethodInvokerObject()"));
 
             _instructions->Append(CEE_CASTCLASS, _X("class System.Func`7<string, string, string, class System.Type[], class System.Type, object[], object>"));
             _instructions->Append(CEE_LDARG_1);

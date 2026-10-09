@@ -354,7 +354,7 @@ namespace NewRelic { namespace Profiler {
                 return S_OK;
             }
 
-            // On Core, only CoreLib needs load-time injection. If the name lookup failed, inject as before.
+            // On Core, only System.Runtime needs load-time injection. If the name lookup failed, inject as before.
             if (isAssemblyNameKnown && !ModuleInjector::ModuleInjector::ShouldInjectAtModuleLoad(_isCoreClr, assemblyName))
             {
                 return S_OK;
@@ -393,12 +393,14 @@ namespace NewRelic { namespace Profiler {
             // Safety net: after injecting into the core library, confirm both the helper type AND the
             // helper methods actually took (InjectIntoModule's return value covers the latter;
             // VerifyNRHelperTypeInjected re-reads metadata for the former). If not, downgrade the whole
-            // process to Reflection -- corelib is the first module loaded, so this precedes essentially
-            // every app-method JIT. Runs even when injection above threw, so a corelib injection
-            // failure is never silently ignored.
+            // process to Reflection -- on .NET Framework mscorlib is the first module loaded, so this
+            // precedes essentially every app-method JIT; on Core, methods rewritten before the
+            // System.Runtime helpers are verified use Reflection (see ProcessMethodJit). Runs even when
+            // injection above threw, so a corelib injection failure is never silently ignored.
             if (module->GetIsThisTheCoreLibAssembly())
             {
                 const bool injected = injectionSucceeded && module->VerifyNRHelperTypeInjected();
+                if (injected) _helpersInjected = true;
                 const auto effective = MethodRewriter::AgentCallStyle::ResolveEffectiveStrategy(_agentCallStrategy, injected);
                 if (effective != _agentCallStrategy)
                 {
@@ -573,8 +575,9 @@ namespace NewRelic { namespace Profiler {
             }
 
             try {
-                // instrument the method
-                methodRewriter->Instrument(function, _agentCallStrategy);
+                // instrument the method; on Core no IL may reference the helpers before they are verified
+                const auto strategy = _isCoreClr && !_helpersInjected ? MethodRewriter::AgentCallStyle::Strategy::Reflection : _agentCallStrategy.load();
+                methodRewriter->Instrument(function, strategy);
             } catch (NewRelic::Profiler::SignatureParser::SignatureParserException exception) {
                 // Dont call function->ToString() since that might cause Signature to be parsed again
                 // Printing the FunctionName should be enough to provide enough debugging context
@@ -1077,6 +1080,7 @@ namespace NewRelic { namespace Profiler {
         // Linux build is -std=c++14, where `= value` copy-initialization is not guaranteed to
         // elide the temporary and so fails to compile.
         std::atomic<MethodRewriter::AgentCallStyle::Strategy> _agentCallStrategy{ MethodRewriter::AgentCallStyle::Strategy::AppDomainFallbackCache };
+        std::atomic<bool> _helpersInjected{ false };
 
         MethodRewriter::MethodRewriterPtr GetMethodRewriter()
         {
