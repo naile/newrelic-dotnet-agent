@@ -77,5 +77,17 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter { namespace T
             Assert::IsTrue(AgentCallStyle::ResolveEffectiveStrategy(
                 AgentCallStyle::Strategy::Reflection, true) == AgentCallStyle::Strategy::Reflection);
         }
+
+        TEST_METHOD(HelperLocation_NetFramework_IsCannotUnloadAppDomainExceptionInMscorlib)
+        {
+            Assert::AreEqual(xstring_t(_X("mscorlib")), AgentCallStyle::HelperAssemblyName(false));
+            Assert::AreEqual(xstring_t(_X("System.CannotUnloadAppDomainException")), AgentCallStyle::HelperTypeName(false));
+        }
+
+        TEST_METHOD(HelperLocation_CoreClr_IsNRInitializerInSystemRuntime)
+        {
+            Assert::AreEqual(xstring_t(_X("System.Runtime")), AgentCallStyle::HelperAssemblyName(true));
+            Assert::AreEqual(xstring_t(_X("__NRInitializer__")), AgentCallStyle::HelperTypeName(true));
+        }
     };
 }}}}

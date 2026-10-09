@@ -22,14 +22,14 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter { namespace T
     TEST_CLASS(ModuleInjectorTest)
     {
     public:
-        TEST_METHOD(ShouldInjectAtModuleLoad_CoreClr_CoreLib_ReturnsTrue)
+        TEST_METHOD(ShouldInjectAtModuleLoad_CoreClr_SystemRuntime_ReturnsTrue)
         {
-            Assert::IsTrue(ModuleInjector::ModuleInjector::ShouldInjectAtModuleLoad(true, _X("System.Private.CoreLib")));
+            Assert::IsTrue(ModuleInjector::ModuleInjector::ShouldInjectAtModuleLoad(true, _X("System.Runtime")));
         }
 
         TEST_METHOD(ShouldInjectAtModuleLoad_CoreClr_OtherAssembly_ReturnsFalse)
         {
-            Assert::IsFalse(ModuleInjector::ModuleInjector::ShouldInjectAtModuleLoad(true, _X("System.Runtime")));
+            Assert::IsFalse(ModuleInjector::ModuleInjector::ShouldInjectAtModuleLoad(true, _X("System.Private.CoreLib")));
             Assert::IsFalse(ModuleInjector::ModuleInjector::ShouldInjectAtModuleLoad(true, _X("MyApp")));
             Assert::IsFalse(ModuleInjector::ModuleInjector::ShouldInjectAtModuleLoad(true, _X("")));
         }
@@ -163,24 +163,26 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter { namespace T
 
         void AssertHelperMethodsWereInjected(const bool isCoreClr, const bool throwsException)
         {
+            // Core defines the helpers on __NRInitializer__ in System.Runtime, without the .NET Framework security attributes.
+            const xstring_t expectedType = isCoreClr ? _X("__NRInitializer__.") : _X("System.CannotUnloadAppDomainException.");
             std::array<xstring_t, 11> expectedMethods = {
-                _X("System.CannotUnloadAppDomainException.LoadAssemblyOrThrow"),
-                _X("System.CannotUnloadAppDomainException.GetTypeViaReflectionOrThrow"),
-                _X("System.CannotUnloadAppDomainException.GetMethodViaReflectionOrThrow"),
-                _X("System.CannotUnloadAppDomainException.StoreMethodInAppDomainStorageOrThrow"),
-                _X("System.CannotUnloadAppDomainException.EnsureInitialized"),
-                _X("System.CannotUnloadAppDomainException.InvokeAgentMethodInvokerFunc"),
-                _X("System.CannotUnloadAppDomainException.GetAgentMethodInvokerObject"),
-                _X("System.CannotUnloadAppDomainException.GetAgentShimFinishTracerDelegateFunc"),
-                _X("System.CannotUnloadAppDomainException.StoreAgentShimFinishTracerDelegateFunc"),
-                _X("System.CannotUnloadAppDomainException.StoreAgentMethodInvokerFunc"),
-                _X("System.CannotUnloadAppDomainException.InvokeAgentShimFinishTracerDelegateFunc")
+                expectedType + _X("LoadAssemblyOrThrow"),
+                expectedType + _X("GetTypeViaReflectionOrThrow"),
+                expectedType + _X("GetMethodViaReflectionOrThrow"),
+                expectedType + _X("StoreMethodInAppDomainStorageOrThrow"),
+                expectedType + _X("EnsureInitialized"),
+                expectedType + _X("InvokeAgentMethodInvokerFunc"),
+                expectedType + _X("GetAgentMethodInvokerObject"),
+                expectedType + _X("GetAgentShimFinishTracerDelegateFunc"),
+                expectedType + _X("StoreAgentShimFinishTracerDelegateFunc"),
+                expectedType + _X("StoreAgentMethodInvokerFunc"),
+                expectedType + _X("InvokeAgentShimFinishTracerDelegateFunc")
             };
 
             auto modulePtr = std::make_shared<MockModule>();
             modulePtr->_isThisTheCoreLibAssembly = true;
             std::set<xstring_t> injectedMethodNamesWithType;
-            modulePtr->_injectStaticSecuritySafeMethod = [&injectedMethodNamesWithType, throwsException](const xstring_t& methodName, const xstring_t& className, const ByteVector& /*signature*/)
+            auto recordInjection = [&injectedMethodNamesWithType, throwsException](const xstring_t& methodName, const xstring_t& className, const ByteVector& /*signature*/)
             {
                 injectedMethodNamesWithType.emplace(className + _X(".") + methodName);
                 if (throwsException)
@@ -188,6 +190,7 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter { namespace T
                     throw NewRelic::Profiler::Win32Exception(E_UNEXPECTED);
                 }
             };
+            (isCoreClr ? modulePtr->_injectStaticMethod : modulePtr->_injectStaticSecuritySafeMethod) = recordInjection;
 
             auto result = ModuleInjector::ModuleInjector::InjectIntoModule(*modulePtr, isCoreClr);
 

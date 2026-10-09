@@ -13,7 +13,8 @@ public abstract class AppDomainCachingTestsBase<TFixture> : NewRelicIntegrationT
     where TFixture : ConsoleDynamicMethodFixture
 {
     private const string InstrumentedMethodTransactionName = "OtherTransaction/Custom/MultiFunctionApplicationHelpers.RootCommands/InstrumentedMethodToStartAgent";
-    private const string ShimDelegateHelperName = "System.CannotUnloadAppDomainException.InvokeAgentShimFinishTracerDelegateFunc";
+    // The helper type is System.CannotUnloadAppDomainException on .NET Framework and __NRInitializer__ on .NET.
+    private const string ShimDelegateHelperName = ".InvokeAgentShimFinishTracerDelegateFunc(";
     private const string TransactionCategory = "AppDomainCachingGroup";
     private const string OriginalTransactionName = "OriginalName";
     private const string RenamedTransactionName = "RenamedName";

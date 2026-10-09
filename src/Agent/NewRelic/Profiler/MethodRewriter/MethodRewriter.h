@@ -40,11 +40,10 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter {
 
         void Initialize()
         {
-            // We have to instrument mscorlib to add our hooks.  Yes, this is a little brittle
+            // We have to instrument the helper assembly to add our hooks.  Yes, this is a little brittle
             // and it should probably live closer to the code that mucks with these methods.
-            _instrumentedAssemblies->emplace(_X("mscorlib"));
-            _instrumentedAssemblies->emplace(_X("System.Private.CoreLib"));
-            _instrumentedTypes->emplace(_X("System.CannotUnloadAppDomainException"));
+            _instrumentedAssemblies->emplace(AgentCallStyle::HelperAssemblyName(_isCoreClr));
+            _instrumentedTypes->emplace(AgentCallStyle::HelperTypeName(_isCoreClr));
             _instrumentedFunctionNames->emplace(_X("GetAppDomainBoolean"));
             _instrumentedFunctionNames->emplace(_X("GetThreadLocalBoolean"));
             _instrumentedFunctionNames->emplace(_X("SetThreadLocalBoolean"));

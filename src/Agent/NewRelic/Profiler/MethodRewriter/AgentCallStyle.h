@@ -55,6 +55,19 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter
             return configuredStrategy;
         }
 
+        // Where the AppDomainFallbackCache helpers are defined: on .NET Framework onto mscorlib's
+        // CannotUnloadAppDomainException, on Core onto __NRInitializer__ in the System.Runtime facade,
+        // whose 30 KB of metadata is copied when made writable instead of CoreLib's 3 MB.
+        static const xstring_t HelperAssemblyName(const bool isCoreClr)
+        {
+            return isCoreClr ? _X("System.Runtime") : _X("mscorlib");
+        }
+
+        static const xstring_t HelperTypeName(const bool isCoreClr)
+        {
+            return isCoreClr ? _X("__NRInitializer__") : _X("System.CannotUnloadAppDomainException");
+        }
+
     private:
         std::shared_ptr<ISystemCalls> _systemCalls;
     };

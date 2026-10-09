@@ -179,7 +179,7 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter
         {
             if (_agentCallStrategy == AgentCallStyle::Strategy::AppDomainFallbackCache)
             {
-                _instructions->Append(CEE_CALL, _X("object [") + _instructions->GetCoreLibAssemblyName() + _X("]System.CannotUnloadAppDomainException::InvokeAgentShimFinishTracerDelegateFunc(string,object[])"));
+                _instructions->Append(CEE_CALL, _X("object [") + AgentCallStyle::HelperAssemblyName(_isCoreClr) + _X("]") + AgentCallStyle::HelperTypeName(_isCoreClr) + _X("::InvokeAgentShimFinishTracerDelegateFunc(string,object[])"));
             }
             else
             {

@@ -572,7 +572,7 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter { namespace T
         {
             HelperInstrumentor instr;
             auto func = std::make_shared<MockFunction>();
-            // isCoreClr=true but module is mscorlib.dll, not System.Private.CoreLib.dll
+            // isCoreClr=true but module is mscorlib.dll, not System.Runtime.dll
             func->_moduleName = L"mscorlib.dll";
             func->_typeName = L"System.CannotUnloadAppDomainException";
             func->_functionName = L"GetThreadLocalBoolean";
@@ -815,22 +815,35 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter { namespace T
             Assert::IsFalse(result, L"HelperInstrumentor must always return false");
         }
 
-        TEST_METHOD(helper_isCoreClr_true_uses_system_private_corelib_module)
+        TEST_METHOD(helper_isCoreClr_true_uses_system_runtime_module)
         {
             HelperInstrumentor instr;
-            // With isCoreClr=true, the expected module name is System.Private.CoreLib.dll
+            // With isCoreClr=true, the helpers are __NRInitializer__ methods in System.Runtime.dll
             auto func = MakeHelperFunc(L"SetThreadLocalBoolean", true);
             bool result = instr.Instrument(func, nullptr, true, AgentCallStyle::Strategy::AppDomainFallbackCache);
             Assert::IsFalse(result);
             Assert::AreEqual((uint64_t)1, instr.GetHelperFireCount());
         }
 
+        TEST_METHOD(helper_coreclr_ignores_the_core_library_type)
+        {
+            HelperInstrumentor instr;
+            auto func = std::make_shared<MockFunction>();
+            func->_moduleName = L"System.Private.CoreLib.dll";
+            func->_typeName = L"System.CannotUnloadAppDomainException";
+            func->_functionName = L"EnsureInitialized";
+            instr.Instrument(func, nullptr, true, AgentCallStyle::Strategy::AppDomainFallbackCache);
+            func->_moduleName = L"System.Runtime.dll";
+            instr.Instrument(func, nullptr, true, AgentCallStyle::Strategy::AppDomainFallbackCache);
+            Assert::AreEqual((uint64_t)0, instr.GetHelperFireCount());
+        }
+
     private:
         static std::shared_ptr<MockFunction> MakeHelperFunc(const wchar_t* funcName, bool isCoreClr = false)
         {
             auto func = std::make_shared<MockFunction>();
-            func->_moduleName = isCoreClr ? L"System.Private.CoreLib.dll" : L"mscorlib.dll";
-            func->_typeName = L"System.CannotUnloadAppDomainException";
+            func->_moduleName = isCoreClr ? L"System.Runtime.dll" : L"mscorlib.dll";
+            func->_typeName = isCoreClr ? L"__NRInitializer__" : L"System.CannotUnloadAppDomainException";
             func->_functionName = funcName;
             return func;
         }
