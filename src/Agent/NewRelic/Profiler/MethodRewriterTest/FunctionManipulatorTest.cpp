@@ -652,25 +652,62 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter { namespace T
                 AgentCallStyle::Strategy::Reflection
             };
 
-            for (auto strategy : strategies)
+            for (auto isCoreClr : { false, true })
             {
-                for (auto helperName : helperNames)
+                for (auto strategy : strategies)
                 {
-                    auto function = std::make_shared<MockFunction>();
-                    function->_functionName = helperName;
+                    for (auto helperName : helperNames)
+                    {
+                        auto function = std::make_shared<MockFunction>();
+                        function->_functionName = helperName;
 
-                    ByteVector capturedBytes;
-                    function->_writeMethodHandler = [&capturedBytes](const ByteVector& bytes) {
-                        capturedBytes = bytes;
-                    };
+                        ByteVector capturedBytes;
+                        function->_writeMethodHandler = [&capturedBytes](const ByteVector& bytes) {
+                            capturedBytes = bytes;
+                        };
 
-                    HelperFunctionManipulator manipulator(function, false, strategy);
-                    manipulator.InstrumentHelper();
+                        HelperFunctionManipulator manipulator(function, isCoreClr, strategy);
+                        manipulator.InstrumentHelper();
 
-                    Assert::IsTrue(capturedBytes.size() > 1, (helperName + _X(": emitted no IL")).c_str());
-                    // 1-byte tiny header plus IL body, and tiny IL must be under 64 bytes.
-                    Assert::IsTrue(capturedBytes.size() <= 64, (helperName + _X(": IL exceeds the tiny method limit")).c_str());
+                        Assert::IsTrue(capturedBytes.size() > 1, (helperName + _X(": emitted no IL")).c_str());
+                        // 1-byte tiny header plus IL body, and tiny IL must be under 64 bytes.
+                        Assert::IsTrue(capturedBytes.size() <= 64, (helperName + _X(": IL exceeds the tiny method limit")).c_str());
+                    }
                 }
+            }
+        }
+
+        // On Core the helpers live on __NRInitializer__ in System.Runtime: helper bodies call each other through that
+        // local type and instrumented methods call it through a System.Runtime reference, never through CoreLib.
+        TEST_METHOD(helpers_and_their_callers_use_the_runtime_specific_helper_type)
+        {
+            for (auto isCoreClr : { false, true })
+            {
+                const auto helperType = isCoreClr ? xstring_t(_X("__NRInitializer__")) : xstring_t(_X("System.CannotUnloadAppDomainException"));
+                const auto otherType = isCoreClr ? xstring_t(_X("System.CannotUnloadAppDomainException")) : xstring_t(_X("__NRInitializer__"));
+
+                auto helper = std::make_shared<MockFunction>();
+                auto helperTokenizer = std::make_shared<RecordingTokenizer>();
+                helper->_tokenizer = helperTokenizer;
+                helper->_functionName = _X("InvokeAgentShimFinishTracerDelegateFunc");
+                HelperFunctionManipulator helperManipulator(helper, isCoreClr, AgentCallStyle::Strategy::AppDomainFallbackCache);
+                helperManipulator.InstrumentHelper();
+                Assert::IsTrue(helperTokenizer->TypeDefTokenized(helperType));
+                Assert::IsFalse(helperTokenizer->TypeDefTokenized(otherType));
+
+                auto instrumented = std::make_shared<MockFunction>();
+                auto instrumentedTokenizer = std::make_shared<RecordingTokenizer>();
+                instrumented->_tokenizer = instrumentedTokenizer;
+                InstrumentFunctionManipulator instrumentedManipulator(instrumented, std::make_shared<InstrumentationSettings>(nullptr, _X("C:\\corepath")), isCoreClr, AgentCallStyle::Strategy::AppDomainFallbackCache);
+                instrumentedManipulator.InstrumentDefault(CreateInstrumentationPointThatMatchesFunction(instrumented));
+                Assert::IsTrue(instrumentedTokenizer->TypeRefTokenized(isCoreClr ? _X("System.Runtime") : _X("mscorlib"), helperType));
+
+                auto api = std::make_shared<MockFunction>();
+                auto apiTokenizer = std::make_shared<RecordingTokenizer>();
+                api->_tokenizer = apiTokenizer;
+                ApiFunctionManipulator apiManipulator(api, std::make_shared<InstrumentationSettings>(nullptr, _X("C:\\corepath")), isCoreClr, AgentCallStyle::Strategy::AppDomainFallbackCache);
+                apiManipulator.InstrumentApi();
+                Assert::IsTrue(apiTokenizer->TypeRefTokenized(isCoreClr ? _X("System.Runtime") : _X("mscorlib"), helperType));
             }
         }
 

@@ -84,7 +84,7 @@ Profiler GUIDs are documented in the [root claude.md](../CLAUDE.md).
 
 **Injected CoreLib helper methods must stay "tiny" (hard, unguarded
 constraint).** The cache getter/store helpers the profiler injects into
-CoreLib/mscorlib (`MethodRewriter/HelperFunctionManipulator.h`, the `Build*`
+mscorlib or, on Core, the System.Runtime facade (`MethodRewriter/HelperFunctionManipulator.h`, the `Build*`
 methods) are emitted via `HelperFunctionManipulator::InstrumentHelper` ->
 `FunctionManipulator::InstrumentTiny`, which ALWAYS writes an ECMA-335 tiny
 method header. This path is tiny-only: no size check, no fat-header fallback
@@ -147,9 +147,10 @@ instrumentation at runtime, which is why `AgentShim.GetTracer` carries
 "Changing the signature of this method will break the C++ code." Unit tests
 are the only compile-time guard on these contracts.
 
-The injected helpers on `System.CannotUnloadAppDomainException` are
+The injected helpers on `System.CannotUnloadAppDomainException` (mscorlib) or
+`__NRInitializer__` (System.Runtime on Core, `AgentCallStyle::HelperTypeName`) are
 string-bound the same way, and each name is repeated in four places that must
-agree for the helper to be reachable: the three `ManagedMethodToInject` arrays
+agree for the helper to be reachable: the four `ManagedMethodToInject` arrays
 in `ModuleInjector.h` (whose `std::array` sizes are hardcoded), the
 `_instrumentedFunctionNames` set in `MethodRewriter.h`, `HelperInstrumentor`'s
 allow-list in `Instrumentors.h`, and `InstrumentHelper`'s dispatch in

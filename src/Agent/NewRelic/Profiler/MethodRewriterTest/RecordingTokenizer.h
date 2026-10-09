@@ -24,6 +24,7 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter { namespace T
 
         std::vector<std::wstring> _memberRefMethodNames;
         std::vector<std::pair<std::wstring, std::wstring>> _typeRefRequests;
+        std::vector<std::wstring> _typeDefRequests;
 
         bool Tokenized(const std::wstring& methodName) const
         {
@@ -33,6 +34,11 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter { namespace T
         bool TypeRefTokenized(const std::wstring& assemblyName, const std::wstring& fullyQualifiedName) const
         {
             return std::find(_typeRefRequests.begin(), _typeRefRequests.end(), std::make_pair(assemblyName, fullyQualifiedName)) != _typeRefRequests.end();
+        }
+
+        bool TypeDefTokenized(const std::wstring& fullName) const
+        {
+            return std::find(_typeDefRequests.begin(), _typeDefRequests.end(), fullName) != _typeDefRequests.end();
         }
 
         virtual uint32_t GetMemberRefOrDefToken(uint32_t parent, const std::wstring& methodName, const ByteVector& signature) override
@@ -59,6 +65,7 @@ namespace NewRelic { namespace Profiler { namespace MethodRewriter { namespace T
 
         virtual uint32_t GetTypeDefToken(const std::wstring& fullName) override
         {
+            _typeDefRequests.push_back(fullName);
             return _inner->GetTypeDefToken(fullName);
         }
 
