@@ -3451,6 +3451,30 @@ public class DefaultConfigurationTests
         Assert.That(_defaultConfig.ContextDataEnabled, Is.False);
     }
 
+    [TestCase(nameof(DefaultConfiguration.LogMetricsCollectorEnabled), "NEW_RELIC_APPLICATION_LOGGING_ENABLED", "false")]
+    [TestCase(nameof(DefaultConfiguration.LogMetricsCollectorEnabled), "NEW_RELIC_APPLICATION_LOGGING_METRICS_ENABLED", "false")]
+    [TestCase(nameof(DefaultConfiguration.LogEventCollectorEnabled), "NEW_RELIC_APPLICATION_LOGGING_FORWARDING_ENABLED", "false")]
+    [TestCase(nameof(DefaultConfiguration.LogEventCollectorEnabled), "NEW_RELIC_APPLICATION_LOGGING_FORWARDING_MAX_SAMPLES_STORED", "0")]
+    [TestCase(nameof(DefaultConfiguration.ContextDataEnabled), "NEW_RELIC_APPLICATION_LOGGING_FORWARDING_CONTEXT_DATA_ENABLED", "false")]
+    [TestCase(nameof(DefaultConfiguration.LogDecoratorEnabled), "NEW_RELIC_APPLICATION_LOGGING_LOCAL_DECORATING_ENABLED", "false")]
+    public void ApplicationLogging_Setting_IsEvaluatedOncePerConfigurationInstance(string property, string environmentVariable, string disablingValue)
+    {
+        bool Read(DefaultConfiguration configuration) => (bool)typeof(DefaultConfiguration).GetProperty(property).GetValue(configuration);
+        _localConfig.applicationLogging.forwarding.contextData.enabled = true;
+        _localConfig.applicationLogging.localDecorating.enabled = true;
+        var firstRead = Read(_defaultConfig);
+
+        Mock.Arrange(() => _environment.GetEnvironmentVariableFromList(environmentVariable)).Returns(disablingValue);
+        var newConfig = new TestableDefaultConfiguration(_environment, _localConfig, _serverConfig, _runTimeConfig, _bootstrapConfiguration, _processStatic, _httpRuntimeStatic, _configurationManagerStatic, _dnsStatic);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(firstRead, Is.True);
+            Assert.That(Read(_defaultConfig), Is.True);
+            Assert.That(Read(newConfig), Is.False);
+        });
+    }
+
     [TestCase(null, null, ExpectedResult = new string[] { })]
     [TestCase("aaa,bbb", "ccc,ddd", ExpectedResult = new[] { "ccc", "ddd" })]
     [TestCase("aaa,bbb", null, ExpectedResult = new[] { "aaa", "bbb" })]
