@@ -28,7 +28,7 @@ public static class DataCompressor
 
     public static byte[] Compress(byte[] bytes, string compressionType)
     {
-        using (var stream = new MemoryStream(bytes.Length))
+        using (var stream = new MemoryStream())
         using (var outputStream = GetCompressionOutputStream(stream, compressionType))
         {
             outputStream.Write(bytes, 0, bytes.Length);
