@@ -530,36 +530,37 @@ public class Agent : IAgent // any changes to api, update the interface in exten
     {
         _agentHealthReporter.ReportLogForwardingFramework(frameworkName);
 
+        var configuration = _configurationService.Configuration;
         var normalizedLevel = string.Empty;
-        if (_configurationService.Configuration.LogMetricsCollectorEnabled ||
-            _configurationService.Configuration.LogEventCollectorEnabled)
+        if (configuration.LogMetricsCollectorEnabled ||
+            configuration.LogEventCollectorEnabled)
         {
             var level = getLevel(logEvent).ToString();
             normalizedLevel = string.IsNullOrWhiteSpace(level) ? "UNKNOWN" : level.ToUpper();
 
             // LogLevelDenyList is already uppercase, so don't need case-insensitive lookup
-            if (_configurationService.Configuration.LogLevelDenyList.Contains(normalizedLevel))
+            if (configuration.LogLevelDenyList.Contains(normalizedLevel))
             {
-                if (_configurationService.Configuration.LogMetricsCollectorEnabled)
+                if (configuration.LogMetricsCollectorEnabled)
                     _agentHealthReporter.IncrementLogDeniedCount(normalizedLevel);
 
                 return;
             }
         }
 
-        if (_configurationService.Configuration.LogMetricsCollectorEnabled)
+        if (configuration.LogMetricsCollectorEnabled)
         {
             _agentHealthReporter.IncrementLogLinesCount(normalizedLevel);
         }
 
         // IOC container defaults to singleton so this will access the same aggregator
-        if (_configurationService.Configuration.LogEventCollectorEnabled)
+        if (configuration.LogEventCollectorEnabled)
         {
             _agentHealthReporter.ReportLogForwardingEnabledWithFramework(frameworkName);
 
             var logMessage = getLogMessage(logEvent);
             var logException = getLogException(logEvent);
-            var logContextData = _configurationService.Configuration.ContextDataEnabled ? getContextData(logEvent) : null;
+            var logContextData = configuration.ContextDataEnabled ? getContextData(logEvent) : null;
 
             // exit quickly if the message, exception and context data are missing
             if (string.IsNullOrWhiteSpace(logMessage) && logException is null && (logContextData is null || logContextData.Count == 0))

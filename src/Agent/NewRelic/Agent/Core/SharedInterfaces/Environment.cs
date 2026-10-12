@@ -5,7 +5,6 @@ using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace NewRelic.Agent.Core.SharedInterfaces;
 
@@ -30,7 +29,7 @@ public class Environment : IEnvironment
     /// <returns>The value of the environment variable specified by <paramref name="variable"/>; or null if the environment
     /// variable is not found.</returns>
     /// <exception cref="ArgumentNullException">Thrown if <paramref name="variable"/> is null.</exception>
-    public string GetEnvironmentVariable(string variable)
+    public virtual string GetEnvironmentVariable(string variable)
     {
         if (variable == null)
             throw new ArgumentNullException(nameof(variable));
@@ -53,11 +52,14 @@ public class Environment : IEnvironment
         if (variables == null || variables.Length == 0)
             throw new ArgumentNullException(nameof(variables));
 
-        var envValue = variables
-            .Select(GetEnvironmentVariable)
-            .FirstOrDefault(v => v != null);
+        foreach (var variable in variables)
+        {
+            var envValue = GetEnvironmentVariable(variable);
+            if (envValue != null)
+                return envValue == string.Empty ? null : envValue;
+        }
 
-        return envValue == string.Empty ? null : envValue;
+        return null;
     }
 
     /// <summary>

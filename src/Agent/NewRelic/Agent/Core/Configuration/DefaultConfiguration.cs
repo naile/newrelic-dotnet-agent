@@ -1839,17 +1839,20 @@ public class DefaultConfiguration : IConfiguration
 
     public virtual bool ApplicationLoggingEnabled => EnvironmentOverrides(_localConfiguration.applicationLogging.enabled, "NEW_RELIC_APPLICATION_LOGGING_ENABLED");
 
-    public virtual bool LogMetricsCollectorEnabled =>
+    private bool? _logMetricsCollectorEnabled;
+    public virtual bool LogMetricsCollectorEnabled => _logMetricsCollectorEnabled ??=
         ApplicationLoggingEnabled &&
         EnvironmentOverrides(_localConfiguration.applicationLogging.metrics.enabled, "NEW_RELIC_APPLICATION_LOGGING_METRICS_ENABLED");
 
-    public virtual bool LogEventCollectorEnabled =>
+    private bool? _logEventCollectorEnabled;
+    public virtual bool LogEventCollectorEnabled => _logEventCollectorEnabled ??=
         ApplicationLoggingEnabled &&
         LogEventsMaxSamplesStored > 0 &&
         HighSecurityModeOverrides(false,
             EnvironmentOverrides(_localConfiguration.applicationLogging.forwarding.enabled, "NEW_RELIC_APPLICATION_LOGGING_FORWARDING_ENABLED"));
 
-    public bool ContextDataEnabled =>
+    private bool? _contextDataEnabled;
+    public bool ContextDataEnabled => _contextDataEnabled ??=
         LogEventCollectorEnabled &&
         EnvironmentOverrides(_localConfiguration.applicationLogging.forwarding.contextData.enabled, "NEW_RELIC_APPLICATION_LOGGING_FORWARDING_CONTEXT_DATA_ENABLED");
 
@@ -1872,7 +1875,8 @@ public class DefaultConfiguration : IConfiguration
             EnvironmentOverrides(_localConfiguration.applicationLogging.forwarding.maxSamplesStored,
                 "NEW_RELIC_APPLICATION_LOGGING_FORWARDING_MAX_SAMPLES_STORED").GetValueOrDefault(10000));
 
-    public virtual bool LogDecoratorEnabled =>
+    private bool? _logDecoratorEnabled;
+    public virtual bool LogDecoratorEnabled => _logDecoratorEnabled ??=
         ApplicationLoggingEnabled &&
         EnvironmentOverrides(_localConfiguration.applicationLogging.localDecorating.enabled, "NEW_RELIC_APPLICATION_LOGGING_LOCAL_DECORATING_ENABLED");
 
