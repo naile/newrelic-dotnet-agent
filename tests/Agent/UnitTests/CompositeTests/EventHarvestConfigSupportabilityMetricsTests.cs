@@ -38,7 +38,7 @@ public class EventHarvestConfigSupportabilityMetricsTests
         var agentEnvironment = new NewRelic.Agent.Core.Environment(systemInfo, processStatic, configurationService);
 
         Mock.Arrange(() => collectorWireFactory.GetCollectorWire(null, Arg.IsAny<IAgentHealthReporter>())).IgnoreArguments().Returns(_collectorWire);
-        Mock.Arrange(() => _collectorWire.SendData("preconnect", Arg.IsAny<ConnectionInfo>(), Arg.IsAny<string>(), Arg.IsAny<Guid>()))
+        Mock.Arrange(() => _collectorWire.SendData("preconnect", Arg.IsAny<ConnectionInfo>(), Arg.IsAny<SerializedPayload>(), Arg.IsAny<Guid>()))
             .Returns("{'return_value': { 'redirect_host': ''}}");
 
         _agentHealthReporter = Mock.Create<IAgentHealthReporter>();
@@ -162,7 +162,7 @@ public class EventHarvestConfigSupportabilityMetricsTests
         }
 
         var serverConfigJson = Newtonsoft.Json.JsonConvert.SerializeObject(_compositeTestAgent.ServerConfiguration);
-        Mock.Arrange(() => _collectorWire.SendData("connect", Arg.IsAny<ConnectionInfo>(), Arg.IsAny<string>(), Arg.IsAny<Guid>()))
+        Mock.Arrange(() => _collectorWire.SendData("connect", Arg.IsAny<ConnectionInfo>(), Arg.IsAny<SerializedPayload>(), Arg.IsAny<Guid>()))
             .Returns($"{{'return_value': {serverConfigJson} }}");
     }
 

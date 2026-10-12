@@ -195,7 +195,7 @@ public class ConnectionHandlerTests
             .Returns(new CollectorResponseEnvelope<PreconnectResult>(preconnectResult));
 
         Mock.Arrange(() => collectorWire.SendData("connect", Arg.IsAny<ConnectionInfo>(),
-                Arg.IsAny<string>(), Arg.IsAny<Guid>()))
+                Arg.IsAny<SerializedPayload>(), Arg.IsAny<Guid>()))
             .Throws(new Exception("connection failed"));
 
         // Act & assert
@@ -209,7 +209,7 @@ public class ConnectionHandlerTests
     {
         // Arrange
         Mock.Arrange(() => _dataRequestWire.SendData(Arg.IsAny<string>(), Arg.IsAny<ConnectionInfo>(),
-                Arg.IsAny<string>(), Arg.IsAny<Guid>()))
+                Arg.IsAny<SerializedPayload>(), Arg.IsAny<Guid>()))
             .Throws(new DataTransport.HttpException(HttpStatusCode.InternalServerError, "Internal Server Error"));
 
 
@@ -224,7 +224,7 @@ public class ConnectionHandlerTests
     {
         // Arrange
         Mock.Arrange(() => _dataRequestWire.SendData(Arg.IsAny<string>(), Arg.IsAny<ConnectionInfo>(),
-                Arg.IsAny<string>(), Arg.IsAny<Guid>()))
+                Arg.IsAny<SerializedPayload>(), Arg.IsAny<Guid>()))
             .Throws(new DataTransport.HttpException(HttpStatusCode.Unauthorized, "Unauthorized"));
 
         // Act & Assert
@@ -238,7 +238,7 @@ public class ConnectionHandlerTests
     public void SendDataRequest_ShouldSetAgentControlStatusToForceDisconnect_OnGone()
     {
         // Arrange
-        Mock.Arrange(() => _dataRequestWire.SendData(Arg.IsAny<string>(), Arg.IsAny<ConnectionInfo>(), Arg.IsAny<string>(), Arg.IsAny<Guid>()))
+        Mock.Arrange(() => _dataRequestWire.SendData(Arg.IsAny<string>(), Arg.IsAny<ConnectionInfo>(), Arg.IsAny<SerializedPayload>(), Arg.IsAny<Guid>()))
             .Throws(new DataTransport.HttpException(HttpStatusCode.Gone, "Gone"));
 
         // Act & Assert
@@ -252,7 +252,7 @@ public class ConnectionHandlerTests
     public void SendDataRequest_ShouldSetAgentControlStatusToHttpProxyError_OnProxyAuthenticationRequired()
     {
         // Arrange
-        Mock.Arrange(() => _dataRequestWire.SendData(Arg.IsAny<string>(), Arg.IsAny<ConnectionInfo>(), Arg.IsAny<string>(), Arg.IsAny<Guid>()))
+        Mock.Arrange(() => _dataRequestWire.SendData(Arg.IsAny<string>(), Arg.IsAny<ConnectionInfo>(), Arg.IsAny<SerializedPayload>(), Arg.IsAny<Guid>()))
             .Throws(new DataTransport.HttpException(HttpStatusCode.ProxyAuthenticationRequired, "Proxy Authentication Required"));
 
         // Act & Assert
@@ -266,7 +266,7 @@ public class ConnectionHandlerTests
     public void SendDataRequest_ShouldSetAgentControlStatusToHttpError_OnUnknownException()
     {
         // Arrange
-        Mock.Arrange(() => _dataRequestWire.SendData(Arg.IsAny<string>(), Arg.IsAny<ConnectionInfo>(), Arg.IsAny<string>(), Arg.IsAny<Guid>()))
+        Mock.Arrange(() => _dataRequestWire.SendData(Arg.IsAny<string>(), Arg.IsAny<ConnectionInfo>(), Arg.IsAny<SerializedPayload>(), Arg.IsAny<Guid>()))
             .Throws(new Exception("Unknown exception"));
 
         // Act & Assert

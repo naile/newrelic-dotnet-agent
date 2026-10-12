@@ -79,7 +79,7 @@ public class HttpCollectorWireTests
         var collectorWire = CreateHttpCollectorWire();
 
         // Act
-        var response = collectorWire.SendData("test_method", connectionInfo, serializedData, Guid.NewGuid());
+        var response = collectorWire.SendData("test_method", connectionInfo, new SerializedPayload(serializedData), Guid.NewGuid());
 
         // Assert
         Assert.That(response, Is.EqualTo(expected));
@@ -111,7 +111,7 @@ public class HttpCollectorWireTests
         var collectorWire = CreateHttpCollectorWire();
 
         // Act and Assert
-        Assert.Throws<HttpRequestException>(() => collectorWire.SendData("test_method", connectionInfo, serializedData, Guid.NewGuid()));
+        Assert.Throws<HttpRequestException>(() => collectorWire.SendData("test_method", connectionInfo, new SerializedPayload(serializedData), Guid.NewGuid()));
 
         Mock.Assert(() => _httpClientFactory.GetOrCreateClient(Arg.IsAny<IWebProxy>(), Arg.IsAny<IConfiguration>()), Occurs.Once());
     }
@@ -141,7 +141,7 @@ public class HttpCollectorWireTests
         var collectorWire = CreateHttpCollectorWire();
 
         // Act and Assert
-        Assert.Throws<HttpException>(() => collectorWire.SendData("test_method", connectionInfo, serializedData, Guid.NewGuid()));
+        Assert.Throws<HttpException>(() => collectorWire.SendData("test_method", connectionInfo, new SerializedPayload(serializedData), Guid.NewGuid()));
 
         Mock.Assert(() => _httpClientFactory.GetOrCreateClient(Arg.IsAny<IWebProxy>(), Arg.IsAny<IConfiguration>()), Occurs.Once());
     }
@@ -173,7 +173,7 @@ public class HttpCollectorWireTests
         var collectorWire = CreateHttpCollectorWire();
 
         // Act
-        var result = collectorWire.SendData("test_method", connectionInfo, largeSerializedData, Guid.NewGuid());
+        var result = collectorWire.SendData("test_method", connectionInfo, new SerializedPayload(largeSerializedData), Guid.NewGuid());
 
         // Assert
         Assert.That(result, Is.EqualTo("{}"));
@@ -213,7 +213,7 @@ public class HttpCollectorWireTests
         AuditLog.IsAuditLogEnabled = isEnabled;
 
         // Act
-        _ = collectorWire.SendData("test_method", connectionInfo, serializedData, Guid.NewGuid());
+        _ = collectorWire.SendData("test_method", connectionInfo, new SerializedPayload(serializedData), Guid.NewGuid());
 
         // Assert
         Mock.Assert(() => mockForContextLogger.Fatal(Arg.AnyString), isEnabled ? Occurs.Exactly(3) : Occurs.Never());
@@ -242,7 +242,7 @@ public class HttpCollectorWireTests
         var collectorWire = CreateHttpCollectorWire();
 
         // Act
-        _ = collectorWire.SendData("test_method", connectionInfo, "{ \"key\": \"value\" }", Guid.NewGuid());
+        _ = collectorWire.SendData("test_method", connectionInfo, new SerializedPayload("{ \"key\": \"value\" }"), Guid.NewGuid());
 
         // Assert
         Mock.Assert(() => mockHttpResponse.GetHeaders(), Occurs.Once());
@@ -271,7 +271,7 @@ public class HttpCollectorWireTests
         var collectorWire = CreateHttpCollectorWire();
 
         // Act and Assert
-        Assert.Throws<HttpException>(() => collectorWire.SendData("test_method", connectionInfo, "invalidjson", Guid.NewGuid()));
+        Assert.Throws<HttpException>(() => collectorWire.SendData("test_method", connectionInfo, new SerializedPayload("invalidjson"), Guid.NewGuid()));
         Mock.Assert(() => mockHttpResponse.GetHeaders(), Occurs.Once());
     }
 
@@ -298,7 +298,7 @@ public class HttpCollectorWireTests
         var collectorWire = CreateHttpCollectorWire();
 
         // Act
-        _ = collectorWire.SendData("test_method", connectionInfo, "{ \"key\": \"value\" }", Guid.NewGuid());
+        _ = collectorWire.SendData("test_method", connectionInfo, new SerializedPayload("{ \"key\": \"value\" }"), Guid.NewGuid());
 
         // Assert
         Mock.Assert(() => mockHttpResponse.GetHeaders(), Occurs.Never());
