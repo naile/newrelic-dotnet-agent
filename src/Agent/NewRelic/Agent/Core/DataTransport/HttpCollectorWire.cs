@@ -78,7 +78,7 @@ public class HttpCollectorWire : ICollectorWire
             DataTransportAuditLogger.Log(DataTransportAuditLogger.AuditLogDirection.Sent, DataTransportAuditLogger.AuditLogSource.InstrumentedApp, request.Uri.ToString());
             DataTransportAuditLogger.Log(DataTransportAuditLogger.AuditLogDirection.Sent, DataTransportAuditLogger.AuditLogSource.InstrumentedApp, request.Content.SerializedData);
 
-            _agentHealthReporter.ReportSupportabilityDataUsage("Collector", method, request.Content.UncompressedByteCount, new UTF8Encoding().GetBytes(responseContent).Length);
+            _agentHealthReporter.ReportSupportabilityDataUsage("Collector", method, request.Content.UncompressedByteCount, Encoding.UTF8.GetByteCount(responseContent));
 
             // Possibly combine these logs? makes parsing harder in tests...
             Log.Debug("Request({0}): Invoked \"{1}\" with : {2}", requestGuid, method, serializedData);
