@@ -9,6 +9,7 @@ using NewRelic.Agent.Configuration;
 using NewRelic.Agent.Core.AgentHealth;
 using NewRelic.Agent.Core.DataTransport.Client;
 using NewRelic.Agent.Core.DataTransport.Client.Interfaces;
+using NewRelic.Agent.Core.Logging;
 using NewRelic.Agent.Extensions.Logging;
 
 namespace NewRelic.Agent.Core.DataTransport;
@@ -39,13 +40,15 @@ public class HttpCollectorWire : ICollectorWire
         _httpClientFactory = httpClientFactory;
     }
 
-    public string SendData(string method, ConnectionInfo connectionInfo, string serializedData, Guid requestGuid)
+    public string SendData(string method, ConnectionInfo connectionInfo, SerializedPayload serializedData, Guid requestGuid)
     {
         HttpRequest request = null;
         try
         {
 
             Log.Finest("Request({0}): Invoking \"{1}\"", requestGuid, method);
+            if (Log.IsDebugEnabled || AuditLog.IsAuditLogEnabled)
+                serializedData.ToString();
             var httpClient = _httpClientFactory.GetOrCreateClient(connectionInfo.Proxy, _configuration);
 
             request = new HttpRequest(_configuration)
@@ -55,7 +58,7 @@ public class HttpCollectorWire : ICollectorWire
                 RequestGuid = requestGuid,
                 Content =
                 {
-                    SerializedData = serializedData,
+                    Payload = serializedData,
                     ContentType = "application/octet-stream",
                 }
             };
@@ -76,7 +79,8 @@ public class HttpCollectorWire : ICollectorWire
             }
 
             DataTransportAuditLogger.Log(DataTransportAuditLogger.AuditLogDirection.Sent, DataTransportAuditLogger.AuditLogSource.InstrumentedApp, request.Uri.ToString());
-            DataTransportAuditLogger.Log(DataTransportAuditLogger.AuditLogDirection.Sent, DataTransportAuditLogger.AuditLogSource.InstrumentedApp, request.Content.SerializedData);
+            if (AuditLog.IsAuditLogEnabled)
+                DataTransportAuditLogger.Log(DataTransportAuditLogger.AuditLogDirection.Sent, DataTransportAuditLogger.AuditLogSource.InstrumentedApp, serializedData.ToString());
 
             _agentHealthReporter.ReportSupportabilityDataUsage("Collector", method, request.Content.UncompressedByteCount, new UTF8Encoding().GetBytes(responseContent).Length);
 
@@ -102,7 +106,7 @@ public class HttpCollectorWire : ICollectorWire
         }
     }
 
-    private static void ThrowExceptionFromHttpResponseMessage(string serializedData, HttpStatusCode statusCode, string responseText, Guid requestGuid)
+    private static void ThrowExceptionFromHttpResponseMessage(SerializedPayload serializedData, HttpStatusCode statusCode, string responseText, Guid requestGuid)
     {
         if (statusCode == HttpStatusCode.UnsupportedMediaType)
         {

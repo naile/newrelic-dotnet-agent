@@ -340,21 +340,16 @@ public class ConnectionHandler : ConfigurationBasedService, IConnectionHandler
     private T SendDataOverWire<T>(ICollectorWire wire, string method, params object[] data)
     {
         var requestGuid = Guid.NewGuid();
-        string serializedData;
+        var serializedData = new SerializedPayload(_serializer, data);
         try
         {
-            serializedData = _serializer.Serialize(data);
+            var responseBody = wire.SendData(method, _connectionInfo, serializedData, requestGuid);
+            return ParseResponse<T>(responseBody);
         }
         catch (JsonSerializationException ex)
         {
             Log.Debug("Request({0}): Exception occurred serializing request data: {1}", requestGuid, ex); // log message only since exception is rethrown
             throw;
-        }
-
-        try
-        {
-            var responseBody = wire.SendData(method, _connectionInfo, serializedData, requestGuid);
-            return ParseResponse<T>(responseBody);
         }
         catch (DataTransport.HttpException ex)
         {

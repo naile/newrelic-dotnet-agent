@@ -9,6 +9,7 @@ public interface IHttpContent
 {
     string ContentType { get; set; }
     string SerializedData { get; set; }
+    SerializedPayload Payload { get; set; }
 
     /// <summary>
     ///     Content headers

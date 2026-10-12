@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using NewRelic.Agent.Configuration;
 using NewRelic.Agent.Core.DataTransport.Client.Interfaces;
@@ -41,7 +42,13 @@ public class NRHttpContent : IHttpContent
         }
     }
 
-    public string SerializedData { get; set; }
+    public string SerializedData
+    {
+        get => Payload?.ToString();
+        set => Payload = new SerializedPayload(value);
+    }
+
+    public SerializedPayload Payload { get; set; }
 
     public byte[] PayloadBytes
     {
@@ -104,16 +111,37 @@ public class NRHttpContent : IHttpContent
             return;
         }
 
-        var bytes = new UTF8Encoding().GetBytes(SerializedData);
-        _uncompressedByteCount = bytes.Length;
-
-        _collectorRequestPayload = GetRequestPayload(bytes);
+        if (Payload.IsMaterialized)
+        {
+            var bytes = new UTF8Encoding().GetBytes(Payload.ToString());
+            _uncompressedByteCount = bytes.Length;
+            _collectorRequestPayload = GetRequestPayload(bytes);
+        }
+        else
+        {
+            _collectorRequestPayload = StreamRequestPayload();
+        }
 
         _payloadInitialized = true;
 
         if (_collectorRequestPayload.Data.Length > _configuration.CollectorMaxPayloadSizeInBytes)
         {
             throw new PayloadSizeExceededException();
+        }
+    }
+
+    private CollectorRequestPayload StreamRequestPayload()
+    {
+        var compressionType = _configuration.CompressedContentEncoding;
+        using (var output = new MemoryStream())
+        {
+            var stream = new CompressingStream(output, compressionType, Constants.CompressMinimumByteLength);
+            using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
+                Payload.WriteTo(writer);
+            _uncompressedByteCount = stream.UncompressedByteCount;
+            return stream.IsCompressed
+                ? new CollectorRequestPayload(true, compressionType, output.ToArray())
+                : new CollectorRequestPayload(false, null, stream.UncompressedBytes);
         }
     }
 

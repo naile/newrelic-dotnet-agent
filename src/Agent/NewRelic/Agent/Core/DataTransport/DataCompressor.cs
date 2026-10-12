@@ -38,6 +38,13 @@ public static class DataCompressor
         }
     }
 
+    public static Stream CreateCompressionStream(Stream output, string compressionType)
+    {
+        var stream = GetCompressionOutputStream(output, compressionType);
+        stream.IsStreamOwner = false;
+        return stream;
+    }
+
     private static DeflaterOutputStream GetCompressionOutputStream(Stream stream, string requestedCompression)
     {
         var compressionType = requestedCompression.ToLower();
