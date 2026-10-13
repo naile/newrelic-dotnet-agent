@@ -40,6 +40,7 @@ public class Agent : IAgent // any changes to api, update the interface in exten
 {
     public const int QueryParameterMaxStringLength = 256;
     private const int LogExceptionStackLimit = 300;
+    private const int LinkingMetadataMaxEntries = 6;
     internal static Agent Instance;
     private static readonly ITransaction _noOpTransaction = new NoOpTransaction();
     public static bool IsAgentShuttingDown = false;
@@ -389,7 +390,7 @@ public class Agent : IAgent // any changes to api, update the interface in exten
             ? Configuration.UtilizationFullHostName
             : Configuration.UtilizationHostName;
 
-        var metadata = new Dictionary<string, string>();
+        var metadata = new Dictionary<string, string>(LinkingMetadataMaxEntries);
         var traceMetadata = TraceMetadata;
         if (!string.IsNullOrEmpty(traceMetadata.TraceId))
         {

@@ -14,6 +14,7 @@ public static class LoggingHelpers
     private const string Hostname = "hostname";
     private const string TraceId = "trace.id";
     private const string SpanId = "span.id";
+    private static EncodedEntityName _encodedEntityName = new(string.Empty, string.Empty);
 
     public static string GetFormattedLinkingMetadata(IAgent agent)
     {
@@ -22,7 +23,7 @@ public static class LoggingHelpers
         string entityName = string.Empty;
         if (metadata.ContainsKey(EntityName))
         {
-            entityName = HttpUtility.UrlEncode(metadata[EntityName]);
+            entityName = UrlEncodeEntityName(metadata[EntityName]);
         }
 
         string entityGuid = string.Empty;
@@ -57,5 +58,29 @@ public static class LoggingHelpers
     public static bool ContainsLinkingToken(string text)
     {
         return text.Contains(LinkingToken);
+    }
+
+    private static string UrlEncodeEntityName(string entityName)
+    {
+        var encodedEntityName = _encodedEntityName;
+        if (encodedEntityName.Name != entityName)
+        {
+            encodedEntityName = new EncodedEntityName(entityName, HttpUtility.UrlEncode(entityName));
+            _encodedEntityName = encodedEntityName;
+        }
+
+        return encodedEntityName.Encoded;
+    }
+
+    private sealed class EncodedEntityName
+    {
+        public readonly string Name;
+        public readonly string Encoded;
+
+        public EncodedEntityName(string name, string encoded)
+        {
+            Name = name;
+            Encoded = encoded;
+        }
     }
 }
