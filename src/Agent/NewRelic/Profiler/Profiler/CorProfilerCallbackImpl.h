@@ -16,7 +16,6 @@
 #include "../ThreadProfiler/ThreadProfiler.h"
 #include "../ContinuousProfiler/ContinuousProfiler.h"
 #include "../Common/FileUtils.h"
-#include "DeferredReJitQueue.h"
 #include "EventMask.h"
 #include "Function.h"
 #include "FunctionResolver.h"
@@ -118,12 +117,7 @@ namespace NewRelic { namespace Profiler {
         virtual HRESULT __stdcall AssemblyUnloadStarted(AssemblyID assemblyId) override { _continuousProfiler.InvalidateNameCache(); return S_OK; }
         virtual HRESULT __stdcall AssemblyUnloadFinished(AssemblyID assemblyId, HRESULT hrStatus) override { return S_OK; }
         virtual HRESULT __stdcall ModuleLoadStarted(ModuleID moduleId) override { return S_OK; }
-        virtual HRESULT __stdcall ModuleUnloadStarted(ModuleID moduleId) override
-        {
-            _continuousProfiler.InvalidateNameCache();
-            _deferredRejits.Remove(moduleId);
-            return S_OK;
-        }
+        virtual HRESULT __stdcall ModuleUnloadStarted(ModuleID moduleId) override { _continuousProfiler.InvalidateNameCache(); return S_OK; }
         virtual HRESULT __stdcall ModuleUnloadFinished(ModuleID moduleId, HRESULT hrStatus) override { return S_OK; }
         virtual HRESULT __stdcall ModuleAttachedToAssembly(ModuleID moduleId, AssemblyID AssemblyId) override { return S_OK; }
         virtual HRESULT __stdcall ClassLoadStarted(ClassID classId) override { return S_OK; }
@@ -337,10 +331,12 @@ namespace NewRelic { namespace Profiler {
                         auto xmlMethodDefs = GetMethodDefs(moduleId, instrumentationPoints);
                         if (xmlMethodDefs != nullptr) methodDefs->insert(xmlMethodDefs->begin(), xmlMethodDefs->end());
                     }
-                    const bool precompiled = _readyToRunEnabled && IsPrecompiled(moduleId);
-                    if (precompiled) AddPrecompiledMethodDefsToRejit(moduleId, assemblyName, *methodDefs);
+                    if (_readyToRunEnabled && IsPrecompiled(moduleId))
+                    {
+                        AddPrecompiledMethodDefsToRejit(moduleId, assemblyName, *methodDefs);
+                        AddSameModuleInliners(moduleId, *methodDefs);
+                    }
                     RejitModuleFunctions(moduleId, methodDefs);
-                    if (precompiled && !methodDefs->empty()) _deferredRejits.Add(moduleId, methodDefs);
                 }
                 catch (...)
                 {
@@ -597,7 +593,6 @@ namespace NewRelic { namespace Profiler {
         virtual HRESULT __stdcall Shutdown() override
         {
             LogInfo(L"Profiler shutting down");
-            _deferredRejits.Shutdown();
             // Ordering guarantee, made structural rather than incidental: _continuousProfiler.Shutdown()
             // below MUST run on this path (the CP sampler thread calling SuspendRuntime/DoStackSnapshot/
             // GetFunctionInfo after this callback returns is forbidden by the profiling API), so it cannot
@@ -810,6 +805,26 @@ namespace NewRelic { namespace Profiler {
         {
             DWORD moduleFlags = 0;
             return SUCCEEDED(_corProfilerInfo4->GetModuleInfo2(moduleId, nullptr, 0, nullptr, nullptr, nullptr, &moduleFlags)) && (moduleFlags & COR_PRF_MODULE_NGEN);
+        }
+
+        // The runtime's inliner walk skips the assembly that is still loading, so callers that crossgen inlined a target into within the same module are requested explicitly.
+        void AddSameModuleInliners(ModuleID moduleId, std::set<mdMethodDef>& methodDefs)
+        {
+            if (_corProfilerInfo10 == nullptr) return;
+            std::set<mdMethodDef> inliners;
+            for (auto methodDef : methodDefs)
+            {
+                BOOL incompleteData = FALSE;
+                CComPtr<ICorProfilerMethodEnum> methodEnum;
+                if (FAILED(_corProfilerInfo10->EnumNgenModuleMethodsInliningThisMethod(moduleId, moduleId, methodDef, &incompleteData, &methodEnum)) || methodEnum == nullptr) continue;
+                COR_PRF_METHOD methods[LOAD_SCAN_BATCH_SIZE];
+                for (ULONG count = 0; SUCCEEDED(methodEnum->Next(LOAD_SCAN_BATCH_SIZE, methods, &count)) && count;)
+                {
+                    for (ULONG i = 0; i < count; i++) inliners.insert(methods[i].methodId);
+                }
+            }
+            if (!inliners.empty()) LogDebug("Requesting ReJIT of ", inliners.size(), " same-module inliner(s)");
+            methodDefs.insert(inliners.begin(), inliners.end());
         }
 
         // ReadyToRun code never raises JITCompilationStarted, so API methods and [Transaction]/[Trace] methods in precompiled modules are requested at module load.
@@ -1069,7 +1084,6 @@ namespace NewRelic { namespace Profiler {
 
         bool _isCoreClr = false;
         bool _readyToRunEnabled = false;
-        DeferredReJitQueue _deferredRejits{ [this](ModuleID moduleId, DeferredReJitQueue::MethodDefs methodDefs) { RejitModuleFunctions(moduleId, methodDefs); }, std::chrono::milliseconds(300) };
         // Written from ModuleLoadFinished (the downgrade path) and from Initialize; read on every
         // JIT and ReJIT compilation via ProcessMethodJit, each of which can run on a different
         // thread than ModuleLoadFinished -- so this must be atomic.

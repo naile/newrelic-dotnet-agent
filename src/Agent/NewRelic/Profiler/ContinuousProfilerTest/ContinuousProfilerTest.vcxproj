@@ -205,7 +205,6 @@
     <ClCompile Include="NameCacheTest.cpp" />
     <ClCompile Include="ThreadDescriptionResolverTest.cpp" />
     <ClCompile Include="EventMaskTest.cpp" />
-    <ClCompile Include="DeferredReJitQueueTest.cpp" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="StubCorProfilerInfo4.h" />
     <ClInclude Include="RichStubCorProfilerInfo4.h" />
@@ -221,7 +220,6 @@
     <ClInclude Include="..\ContinuousProfiler\ThreadDescriptionResolver.h" />
     <ClInclude Include="..\ThreadProfiler\namecache.h" />
     <ClInclude Include="..\Profiler\EventMask.h" />
-    <ClInclude Include="..\Profiler\DeferredReJitQueue.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
