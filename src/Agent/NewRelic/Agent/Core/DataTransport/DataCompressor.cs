@@ -4,6 +4,7 @@
 using System;
 using System.IO;
 using System.Text;
+using System.Threading;
 using ICSharpCode.SharpZipLib.GZip;
 using ICSharpCode.SharpZipLib.Zip.Compression;
 using ICSharpCode.SharpZipLib.Zip.Compression.Streams;
@@ -14,6 +15,8 @@ public static class DataCompressor
 {
     public const string DeflateCompression = "deflate";
     public const string GzipCompression = "gzip";
+
+    private static Deflater _cachedDeflater;
 
     public static byte[] Compress(string data)
     {
@@ -28,23 +31,35 @@ public static class DataCompressor
 
     public static byte[] Compress(byte[] bytes, string compressionType)
     {
-        using (var stream = new MemoryStream())
-        using (var outputStream = GetCompressionOutputStream(stream, compressionType))
+        var compression = compressionType.ToLower();
+        var deflater = compression == DeflateCompression ? Interlocked.Exchange(ref _cachedDeflater, null) ?? new Deflater(Deflater.DEFAULT_COMPRESSION) : null;
+        try
         {
-            outputStream.Write(bytes, 0, bytes.Length);
-            outputStream.Flush();
-            outputStream.Finish();
-            return stream.ToArray();
+            using (var stream = new MemoryStream())
+            using (var outputStream = GetCompressionOutputStream(stream, compression, deflater))
+            {
+                outputStream.Write(bytes, 0, bytes.Length);
+                outputStream.Flush();
+                outputStream.Finish();
+                return stream.ToArray();
+            }
+        }
+        finally
+        {
+            if (deflater != null)
+            {
+                deflater.Reset();
+                Volatile.Write(ref _cachedDeflater, deflater);
+            }
         }
     }
 
-    private static DeflaterOutputStream GetCompressionOutputStream(Stream stream, string requestedCompression)
+    private static DeflaterOutputStream GetCompressionOutputStream(Stream stream, string compressionType, Deflater deflater)
     {
-        var compressionType = requestedCompression.ToLower();
         switch (compressionType)
         {
             case DeflateCompression:
-                return new DeflaterOutputStream(stream, new Deflater(Deflater.DEFAULT_COMPRESSION));
+                return new DeflaterOutputStream(stream, deflater);
             case GzipCompression:
                 return new GZipOutputStream(stream);
             default:
