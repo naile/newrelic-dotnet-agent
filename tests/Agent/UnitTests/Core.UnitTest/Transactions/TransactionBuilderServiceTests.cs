@@ -14,6 +14,7 @@ using NewRelic.Agent.Core.DistributedTracing.Samplers;
 using NewRelic.Agent.Core.Errors;
 using NewRelic.Agent.Core.Time;
 using NewRelic.Agent.Core.Wrapper.AgentWrapperApi.Builders;
+using NewRelic.Agent.Extensions.Logging;
 using NewRelic.Agent.Extensions.Providers;
 using NUnit.Framework;
 using Telerik.JustMock;
@@ -42,9 +43,7 @@ public class TransactionBuilderServiceTests
         var factory1 = CreateFactoryForTransactionContext(_highPriorityTransactionContext);
         var factory2 = CreateFactoryForTransactionContext(_lowPriorityTransactionContext);
 
-        IAttributeDefinitionService _attribDefSvc = new AttributeDefinitionService((f) => new AttributeDefinitions(f));
-
-        _transactionService = new TransactionService(new[] { factory1, factory2 }, Mock.Create<ISimpleTimerFactory>(), Mock.Create<ICallStackManagerFactory>(), Mock.Create<IDatabaseService>(), Mock.Create<ITracePriorityManager>(), Mock.Create<IDatabaseStatementParser>(), Mock.Create<IErrorService>(), Mock.Create<IDistributedTracePayloadHandler>(), _attribDefSvc, Mock.Create<ISamplerService>());
+        _transactionService = CreateTransactionService(factory1, factory2);
     }
 
     [TearDown]
@@ -119,6 +118,25 @@ public class TransactionBuilderServiceTests
         // ASSERT
         Assert.That(newTransaction, Is.Not.Null);
         Assert.That(newTransaction, Is.SameAs(oldTransaction));
+    }
+
+    [Test]
+    public void GetCurrentInternalTransaction_DoesNotAllocate()
+    {
+        Log.Initialize(new NoOpLogger());
+        var transaction = Mock.Create<IInternalTransaction>();
+        using var transactionService = CreateTransactionService(CreateFactoryForTransactionContext(new FixedTransactionStorage(transaction)));
+        transactionService.GetCurrentInternalTransaction();
+
+        var allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        var currentTransaction = transactionService.GetCurrentInternalTransaction();
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(currentTransaction, Is.SameAs(transaction));
+            Assert.That(allocated, Is.Zero);
+        });
     }
 
     [Test]
@@ -300,5 +318,25 @@ public class TransactionBuilderServiceTests
         var transactionContextFactory = Mock.Create<IContextStorageFactory>();
         Mock.Arrange(() => transactionContextFactory.CreateContext<IInternalTransaction>(Arg.AnyString)).Returns(transactionContext);
         return transactionContextFactory;
+    }
+
+    private static TransactionService CreateTransactionService(params IContextStorageFactory[] factories)
+    {
+        var attribDefSvc = new AttributeDefinitionService((f) => new AttributeDefinitions(f));
+        return new TransactionService(factories, Mock.Create<ISimpleTimerFactory>(), Mock.Create<ICallStackManagerFactory>(), Mock.Create<IDatabaseService>(), Mock.Create<ITracePriorityManager>(), Mock.Create<IDatabaseStatementParser>(), Mock.Create<IErrorService>(), Mock.Create<IDistributedTracePayloadHandler>(), attribDefSvc, Mock.Create<ISamplerService>());
+    }
+
+    private class FixedTransactionStorage : IContextStorage<IInternalTransaction>
+    {
+        private readonly IInternalTransaction _transaction;
+
+        public byte Priority => byte.MaxValue;
+        public bool CanProvide => true;
+
+        public FixedTransactionStorage(IInternalTransaction transaction) => _transaction = transaction;
+
+        public IInternalTransaction GetData() => _transaction;
+        public void SetData(IInternalTransaction value) { }
+        public void Clear() { }
     }
 }

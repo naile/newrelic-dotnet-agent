@@ -60,7 +60,7 @@ public interface ITransactionService
 public class TransactionService : ConfigurationBasedService, ITransactionService
 {
     private const string TransactionContextKey = "NewRelic.Transaction";
-    private readonly IEnumerable<IContextStorage<IInternalTransaction>> _sortedPrimaryContexts;
+    private readonly List<IContextStorage<IInternalTransaction>> _sortedPrimaryContexts;
     private readonly IContextStorage<IInternalTransaction> _asyncContext;
     private readonly ISimpleTimerFactory _timerFactory;
     private readonly ICallStackManagerFactory _callStackManagerFactory;
